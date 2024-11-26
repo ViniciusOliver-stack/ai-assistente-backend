@@ -27,7 +27,7 @@ app.use(express.json());
 const externalWebSocket = new ExternalWebSocketService(io);
 
 // Configuração das rotas da API
-app.use('/api/messages', createMessageRouter(io));
+app.use('/api/messages', createMessageRouter(io as any));
 
 // Gerenciamento de conexões WebSocket internas
 io.on('connection', (socket) => {
