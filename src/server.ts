@@ -14,7 +14,7 @@ const httpServer = createServer(app);
 // Configuração do Socket.IO interno
 const io = new SocketServer(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: process.env.FRONTEND_URL || 'https://ai-assistente.vercel.app/',
     methods: ['GET', 'POST']
   }
 });
