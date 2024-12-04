@@ -8,10 +8,12 @@ datasource db {
 }
 
 model Message {
-  id          String   @id @default(uuid())
-  text        String
-  sender      String
-  recipientId String
-  timestamp   DateTime @default(now())
-  delivered   Boolean  @default(false)
+  id            String   @id @default(uuid())
+  text          String
+  sender        String
+  recipientId   String
+  timestamp     DateTime @default(now())
+  delivered     Boolean  @default(false)
+  hasAudio      Boolean  @default(false)
+  isTranscribed Boolean  @default(false)
 }
