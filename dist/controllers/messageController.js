@@ -17,7 +17,6 @@ class MessageController {
                     text,
                     sender,
                     recipientId,
-                    delivered: false,
                 },
             });
             // Tenta enviar a mensagem via WebSocket
@@ -35,7 +34,6 @@ class MessageController {
             const messages = await database_1.default.message.findMany({
                 where: {
                     recipientId: userId,
-                    delivered: false,
                 },
                 orderBy: {
                     timestamp: 'asc',

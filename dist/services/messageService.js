@@ -27,9 +27,9 @@ class MessageService {
                     text,
                     sender,
                     recipientId: 'DEFAULT_RECIPIENT', // Ajuste conforme necessário
-                    delivered: false,
                 },
             });
+            console.log('Mensagem salva no banco de dados:', message);
             // Notificar clientes
             this.io.emit('new_message', {
                 id: message.id,
@@ -49,7 +49,6 @@ class MessageService {
         return await database_1.default.message.findMany({
             where: {
                 recipientId: userId,
-                delivered: false,
             },
             orderBy: {
                 timestamp: 'asc',

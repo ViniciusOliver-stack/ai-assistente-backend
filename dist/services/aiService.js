@@ -7,25 +7,157 @@ exports.AIService = void 0;
 const groq_sdk_1 = __importDefault(require("groq-sdk"));
 const events_1 = require("../types/events");
 const eventEmitter_1 = require("./eventEmitter");
+const database_1 = __importDefault(require("../config/database"));
+const client_1 = require("@prisma/client");
 class AIService {
-    constructor(io) {
-        this.groq = new groq_sdk_1.default({
-            apiKey: process.env.GROQ_API_KEY || "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"
-        });
+    constructor(io, instanceName) {
+        this.groq = null;
         this.io = io;
+        this.instanceName = instanceName;
     }
+    async initializeGroqClient() {
+        var _a, _b;
+        const instance = await database_1.default.whatsAppInstance.findUnique({
+            where: { instanceName: this.instanceName },
+            include: {
+                agent: {
+                    include: {
+                        token: true
+                    }
+                }
+            }
+        });
+        if (!((_b = (_a = instance === null || instance === void 0 ? void 0 : instance.agent) === null || _a === void 0 ? void 0 : _a.token) === null || _b === void 0 ? void 0 : _b.key)) {
+            throw new Error(`No API key found for instance ${this.instanceName}`);
+        }
+        this.groq = new groq_sdk_1.default({
+            apiKey: instance.agent.token.key
+        });
+        return instance.agent;
+    }
+    async getAgentConfiguration() {
+        const instance = await database_1.default.whatsAppInstance.findUnique({
+            where: { instanceName: this.instanceName },
+            include: {
+                agent: {
+                    include: {
+                        token: true, // Include the API Key configuration
+                        team: true // Include team information
+                    }
+                }
+            }
+        });
+        if (!(instance === null || instance === void 0 ? void 0 : instance.agent)) {
+            throw new Error(`No agent configuration found for instance ${this.instanceName}`);
+        }
+        return instance.agent;
+    }
+    async saveAIResponse(text, userId, conversationId, agentConfig) {
+        return await database_1.default.message.create({
+            data: {
+                conversationId,
+                text,
+                sender: 'ai',
+                recipientId: userId,
+                status: 'sent',
+                messageType: 'text',
+                metadata: {
+                    isAIResponse: true,
+                    model: agentConfig.providerModel,
+                    instanceName: this.instanceName,
+                    agentTitle: agentConfig.title,
+                }
+            }
+        });
+    }
+    async getOrCreateConversation(userId, agentConfig) {
+        // Procurar por conversa ativa
+        const activeConversation = await database_1.default.conversation.findFirst({
+            where: {
+                AND: [
+                    {
+                        participants: {
+                            some: {
+                                participantId: userId
+                            }
+                        }
+                    },
+                    {
+                        status: client_1.ConversationStatus.OPEN
+                    },
+                    {
+                        instanceWhatsApp: this.instanceName // Filtrar pela instância correta
+                    }
+                ]
+            },
+            orderBy: {
+                createdAt: 'desc'
+            },
+        });
+        if (activeConversation) {
+            return activeConversation;
+        }
+        // Se não houver conversa ativa, criar uma nova
+        return await database_1.default.conversation.create({
+            data: {
+                status: client_1.ConversationStatus.OPEN,
+                ticketNumber: `TK-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
+                priority: 'MEDIUM',
+                instanceWhatsApp: this.instanceName, // Vincular à instância
+                participants: {
+                    create: [
+                        {
+                            participantId: userId,
+                            role: 'user',
+                        },
+                        {
+                            participantId: 'ai',
+                            role: 'ai',
+                        }
+                    ]
+                },
+                metadata: {
+                    aiModel: agentConfig.providerModel,
+                    agentTitle: agentConfig.title,
+                    teamId: agentConfig.teamId
+                }
+            }
+        });
+    }
+    // private async validateUserInstance(userId: string): Promise<boolean> {
+    //     console.log("VALIDANDO USUARIO: ", userId);
+    //     console.log("INSTANCIA: ", this.instanceName);
+    //     // Verificar se o usuário pertence a esta instância
+    //     const conversation = await prisma.conversation.findFirst({
+    //         where: {
+    //             AND: [
+    //                 {
+    //                     participants: {
+    //                         some: {
+    //                             participantId: userId
+    //                         }
+    //                     }
+    //                 },
+    //                 {
+    //                     instanceWhatsApp: this.instanceName
+    //                 }
+    //             ]
+    //         }
+    //     });
+    //     console.log("CONVERSA: ", conversation);
+    //     return !!conversation;
+    // }
     async processAIResponse(message, userId) {
         var _a, _b;
         try {
+            // Inicializa o cliente Groq com a API key do banco
+            const agentConfig = await this.initializeGroqClient();
+            if (!this.groq) {
+                throw new Error('Failed to initialize Groq client');
+            }
             // Configuração do prompt do sistema
-            const systemPrompt = `
-                <identidade> Atue como um Especialista em Atendimento de Suporte  de Nível Sênior da empresa Symplus. Você possui 14 anos de experiência em suporte ao cliente e é certificado em (certificações ou treinamentos relevantes), o que o torna altamente qualificado para resolver uma ampla gama de problemas técnicos e não técnicos. Sua abordagem é marcada pela empatia, paciência e profundo conhecimento dos (produtos ou serviços da empresa). Você é a linha de frente para garantir que cada cliente tenha uma experiência excepcional e memorável ao interagir com a empresa. </identidade>  <funcao> Sua missão principal é resolver problemas de forma rápida, eficaz e personalizada, garantindo que cada cliente sinta que suas necessidades foram plenamente compreendidas e atendidas. Você é responsável por:  - Diagnosticar e solucionar problemas técnicos complexos, usando ferramentas de troubleshooting avançadas, ao mesmo tempo que simplifica as informações para o cliente. - Fornecer orientações claras e detalhadas sobre os recursos e funcionalidades dos produtos ou serviços, adaptando a comunicação ao nível de entendimento do cliente. - Gerenciar reclamações e feedbacks de maneira empática e construtiva, transformando frustrações em oportunidades de fidelização. - Utilizar suas habilidades específicas em (habilidade única de suporte 1) e (habilidade única de suporte 2) para criar soluções personalizadas que atendam ou superem as expectativas. </funcao>  <objetivo> Seu objetivo é elevar continuamente o nível de satisfação do cliente. Em cada interação, você deve se concentrar em:  - Exceder as expectativas do cliente ao antecipar suas necessidades e oferecer soluções proativas. - Minimizar o tempo de resolução sem comprometer a qualidade, utilizando procedimentos de suporte eficazes. - Contribuir para altas taxas de retenção e fidelização ao criar uma experiência positiva que gera lealdade.  Você deve pensar como um solucionador de problemas criativo, um educador paciente e um defensor apaixonado do cliente. Seu sucesso é medido por:  - Métrica de suporte chave 1 (por exemplo, NPS, CSAT, ou tempo médio de resolução). - Métrica de suporte chave 2 (por exemplo, taxa de resolução na primeira interação ou taxa de escalonamento). - Sua capacidade consistente de gerar resultados excepcionais de suporte em ambientes de alta demanda. </objetivo>  <estilo> Seu estilo de comunicação deve ser:  - Profissional, claro e articulado, ajustando o tom e a linguagem ao nível de formalidade e compreensão do cliente. - Caloroso e amigável, garantindo que o cliente se sinta valorizado e respeitado em cada interação. - Altamente adaptável, sendo capaz de alternar entre uma comunicação técnica precisa e uma explicação simplificada conforme necessário.  Utilize:  - Analogias eficazes para explicar conceitos complexos de forma simples. - Técnicas de escuta ativa para compreender as preocupações do cliente e demonstrar empatia genuína. - Perguntas perspicazes para identificar rapidamente a raiz do problema e fornecer soluções personalizadas.  Em todas as interações, exiba um profundo conhecimento dos produtos e serviços da empresa, das políticas e procedimentos internos, e das melhores práticas de solução de problemas. </estilo>  <instrucoes> Como um especialista de elite em suporte, você deve sempre:  - Manter a calma e mostrar respeito em situações desafiadoras, assumindo responsabilidade pelo atendimento. - Priorizar e gerenciar múltiplos casos de forma eficiente, cumprindo prazos de SLA sem perder a qualidade. - Colaborar com equipes internas e escalar problemas adequadamente quando necessário para garantir uma resolução rápida. - Demonstrar paciência e empatia ao lidar com clientes frustrados, problemas recorrentes ou limitações técnicas. - Buscar constantemente feedback dos clientes e compartilhar insights com a equipe para melhorar continuamente o processo de suporte. </instrucoes>  <blacklist-topicos>  </blacklist-topicos>  <blacklist-palavras>  </blacklist-palavras>  <links> Aqui estão as únicas URL's que você pode citar:  - Aqui estão alguns links para aprimorar suas interações de suporte:  - Base de Conhecimento: (Link)  - Portal de Suporte ao Cliente: (Link)  - Tutoriais em Vídeo: (Link)  - Fóruns da Comunidade: (Link) </links>  <regras-personalizadas> - Sempre assuma a melhor intenção do cliente e finalize cada interação com apreço e uma nota positiva. - Peça permissão antes de acessar remotamente o dispositivo ou colocar o cliente em espera. - Resuma a conversa, confirme a resolução e forneça próximos passos claros antes de encerrar o atendimento. - Personalize cada experiência, encontre formas de superar expectativas e transforme reclamações em oportunidades de fidelização. - Cuide de si mesmo, comemore seus sucessos e encontre propósito em seu papel fundamental no sucesso dos clientes.  <blacklist>- Nunca perder a paciência, ser condescendente ou discutir com o cliente, independentemente do quão difícil seja a situação. - Não faça promessas que não possa cumprir, forneça informações incorretas, ou hesite em pedir ajuda quando necessário. - Não negligencie a documentação, viole políticas de segurança, ou ignore procedimentos estabelecidos. - Nunca fale mal da empresa, culpe outros departamentos ou tome as queixas como pessoais. - Não resista a feedbacks, evite mudanças, ou negligencie o desenvolvimento contínuo de suas habilidades.</blacklist> </regras-personalizadas>
-                <informacoes>
-                - Chave PIX: 123456-0087654
-                </informacoes>
-                Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. 
-                Responda de forma objetiva e seguindo padrão de ortografia.
-            `;
+            const systemPrompt = agentConfig.prompt + "Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.";
+            const conversation = await this.getOrCreateConversation(userId, agentConfig);
             // Gerar resposta da IA
             const response = await this.groq.chat.completions.create({
                 messages: [
@@ -35,16 +167,17 @@ class AIService {
                     },
                     {
                         role: "system",
-                        content: systemPrompt
+                        content: systemPrompt || ""
                     }
                 ],
-                model: "llama-3.1-70b-versatile",
-                temperature: 0.5,
-                max_tokens: 1024,
+                model: agentConfig.providerModel || "llama-3.1-70b-versatile",
+                temperature: agentConfig.temperature || 0.5,
+                max_tokens: agentConfig.limitToken || 1024,
             });
             const aiResponse = (_b = (_a = response.choices[0]) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.content;
             console.log('Resposta da IA:', aiResponse);
             if (aiResponse) {
+                const savedMessage = await this.saveAIResponse(aiResponse, userId, conversation.id, agentConfig);
                 const responseData = {
                     text: aiResponse,
                     userId,
@@ -55,11 +188,14 @@ class AIService {
                 await this.sendExternalMessage(aiResponse, userId);
                 // Emitir a mensagem via WebSocket para o frontend
                 this.io.emit('new_message_ai', {
-                    id: Date.now(),
+                    id: savedMessage.id,
                     text: aiResponse,
                     sender: 'ai',
-                    timestamp: new Date().toISOString(),
-                    messageTo: userId
+                    timestamp: savedMessage.timestamp.toISOString(),
+                    messageTo: userId,
+                    conversationId: conversation.id,
+                    instanceName: this.instanceName,
+                    agentTitle: agentConfig.title
                 });
                 return responseData;
             }
@@ -69,7 +205,8 @@ class AIService {
             const errorData = {
                 error: 'Erro ao processar resposta da IA',
                 userId,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                instanceName: this.instanceName
             };
             eventEmitter_1.globalEventEmitter.emit(events_1.SocketEvents.ERROR, errorData);
             this.io.emit(events_1.SocketEvents.ERROR, errorData);
@@ -78,7 +215,7 @@ class AIService {
     }
     async sendExternalMessage(text, userId) {
         try {
-            await fetch("https://symplus-evolution.3g77fw.easypanel.host/message/sendText/SymplusTalk", {
+            await fetch(`https://symplus-evolution.3g77fw.easypanel.host/message/sendText/${this.instanceName}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
