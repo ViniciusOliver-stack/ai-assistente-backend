@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { ExternalWebSocketService } from './services/externalWebSocket';
 import { createMessageRouter } from './routes/messageRoutes';
+import { WhatsAppInstanceManager } from './services/whatsAppInstanceService';
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use(express.json());
 
 // Inicialização do serviço de WebSocket externo
 const externalWebSocket = new ExternalWebSocketService(io);
+const instanceManager = new WhatsAppInstanceManager(io);
 
 // Configuração das rotas da API
 app.use('/api/messages', createMessageRouter(io as any));
@@ -41,6 +43,28 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Cliente desconectado:', socket.id);
   });
+});
+
+// Example of adding a new instance
+app.post('/instances', async (req, res) => {
+  try {
+      const { instanceName, serverUrl, teamId, agentId } = req.body;
+      const newInstance = await instanceManager.addInstance({
+          instanceName,
+          serverUrl,
+          teamId,
+          agentId
+      });
+      res.json(newInstance);
+  } catch (error) {
+      res.status(500).json({ error: 'Failed to create instance' });
+  }
+});
+
+// Example of getting active instances
+app.get('/instances', (req, res) => {
+  const instances = instanceManager.getActiveInstances();
+  res.json(instances);
 });
 
 // Inicialização do servidor
