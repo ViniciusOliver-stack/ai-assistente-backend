@@ -15,12 +15,11 @@ export class MessageController {
           text,
           sender,
           recipientId,
-          delivered: false,
         },
       });
 
       // Tenta enviar a mensagem via WebSocket
-      this.socketService.emitMessage(recipientId, message);
+      this.socketService.emitMessage(recipientId, message as any);
 
       res.status(201).json(message);
     } catch (error) {
@@ -36,7 +35,6 @@ export class MessageController {
       const messages = await prisma.message.findMany({
         where: {
           recipientId: userId,
-          delivered: false,
         },
         orderBy: {
           timestamp: 'asc',
