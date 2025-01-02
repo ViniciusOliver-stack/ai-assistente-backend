@@ -7,13 +7,267 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String          @id @default(cuid())
+  name          String?
+  email         String          @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  // Optional for WebAuthn support
+  Authenticator Authenticator[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamento com TeamMember
+  TeamMembers TeamMember[]
+
+  // Relacionamento com o plano
+  planId String?
+  plan   Plan?   @relation(fields: [planId], references: [id])
+
+  // Campo para rastrear quantidade de membros e equipes
+  totalTeams   Int    @default(0)
+  totalMembers Int    @default(0)
+  Team         Team[]
+
+  //Stripe
+  stripeCustomerId         String?
+  stripeSubscriptionId     String?
+  stripeSubscriptionStatus String?
+  stripePriceId            String?
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+// Optional for WebAuthn support
+model Authenticator {
+  credentialID         String  @unique
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, credentialID])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members          TeamMember[]
+  agents           Agent[]
+  apiKeys          ApiKey[]
+  WhatsAppInstance WhatsAppInstance[]
+
+  // Relacionar o time ao usuário dono
+  ownerId String?
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  role     String
+  joinedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+
+  @@unique([userId, teamId])
+}
+
+model Agent {
+  id          String  @id @default(cuid())
+  title       String?
+  description String?
+
+  enterprise    String?
+  providerModel String?
+
+  temperature        Float?
+  limitToken         Float?
+  restrictionContent Boolean?
+  languageDetector   Boolean?
+  prompt             String?
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+
+  token   ApiKey? @relation(fields: [tokenId], references: [id])
+  tokenId String?
+
+  // @@unique([teamId])
+  WhatsAppInstance WhatsAppInstance[]
+}
+
+model Plan {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  maxTeams          Int //Quantidade máxima de equipes
+  maxMembersPerTeam Int //Quantidade máxima de membros por equipe
+  price             Float //Preço do plano
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  User User[]
+}
+
+model ApiKey {
+  id       String  @id @default(cuid())
+  key      String
+  provider String
+  teamId   String
+  team     Team    @relation(fields: [teamId], references: [id])
+  agents   Agent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppInstance {
+  id           String   @id @default(cuid())
+  instanceName String   @unique // Nome completo com UUID
+  displayName  String? // Nome de exibição sem UUID
+  instanceId   String   @unique
+  status       String
+  apiKey       String?
+  integration  String
+  serverUrl    String
+  webhookUrl   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+
+  @@index([teamId])
+  @@index([agentId])
+}
+
+model PromptModels {
+  id        String   @id @default(uuid())
+  agentName String
+  prompt    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * BACKEND
+ */
+
+model Conversation {
+  id               String                    @id @default(uuid())
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  status           ConversationStatus        @default(OPEN)
+  ticketNumber     String?                   @unique
+  priority         TicketPriority?
+  instanceWhatsApp String?
+  closedAt         DateTime?
+  closedBy         String?
+  reopenCount      Int                       @default(0)
+  lastActivity     DateTime                  @default(now())
+  participants     ConversationParticipant[]
+  messages         Message[]
+  metadata         Json?
+}
+
+enum ConversationStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+  RESOLVED
+  WAITING_USER
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  participantId  String
+  role           String
+  joinedAt       DateTime     @default(now())
+  leftAt         DateTime?
+
+  @@unique([conversationId, participantId])
+}
+
 model Message {
-  id            String   @id @default(uuid())
-  text          String
-  sender        String
-  recipientId   String
-  timestamp     DateTime @default(now())
-  delivered     Boolean  @default(false)
-  hasAudio      Boolean  @default(false)
-  isTranscribed Boolean  @default(false)
+  id             String        @id @default(uuid())
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  text           String
+  sender         String
+  recipientId    String
+  timestamp      DateTime      @default(now())
+  messageType    String        @default("text")
+  status         String        @default("sent")
+  hasAudio       Boolean       @default(false)
+  isTranscribed  Boolean       @default(false)
+  audioUrl       String?
+  transcription  String?
+  metadata       Json?
+
+  @@index([conversationId, timestamp])
 }
