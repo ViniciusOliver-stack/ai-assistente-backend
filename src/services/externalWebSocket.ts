@@ -3,12 +3,15 @@ import { Server as SocketServer } from 'socket.io';
 import { AIService } from './aiService';
 import prisma from '../config/database';
 import { AudioTranscriptionService } from './transcriptionAudioGroq';
+import { ConversationManager } from './conversationManager';
+import { ConversationStatus } from '@prisma/client';
 
 interface MessageData {
     text?: string;
     audioBase64?: string;
     sender: string;
     recipientId: string;
+    instance?: string
 }
 
 export class ExternalWebSocketService {
@@ -17,21 +20,35 @@ export class ExternalWebSocketService {
     private aiService: AIService;
     private transcriptionService: AudioTranscriptionService;
 
-    constructor(internalIo: SocketServer) {
+    constructor(internalIo: SocketServer, instanceUrl?: string) {
         // if (!process.env.GROQ_API_KEY) {
         //     throw new Error('API KEY não está definida nas variáveis de ambiente');
         // }
         this.internalIo = internalIo;
-        this.aiService = new AIService(internalIo);
+        const defaultUrl = "https://symplus-evolution.3g77fw.easypanel.host/SymplusTalk";
+        const finalUrl = instanceUrl || defaultUrl;
+        console.log('instanceUrl: ' + finalUrl.split("/").pop());
+        const instanceName = finalUrl.split('/').pop() 
+        this.aiService = new AIService(internalIo, instanceName!);
         this.transcriptionService = new AudioTranscriptionService(process.env.GROQ_API_KEY || "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");
-        this.externalSocket = ioClient("https://symplus-evolution.3g77fw.easypanel.host/SymplusTalk", {
+        this.externalSocket = ioClient(instanceUrl, {
             transports: ['websocket']
         });
 
         this.setupExternalSocketListeners();
     }
 
+        // Add disconnect method
+        disconnect() {
+            if (this.externalSocket) {
+                this.externalSocket.disconnect();
+            }
+        }
+
     private extractMessageContent(messageData: any): MessageData | null {
+
+        console.log("Mensagem data: " + JSON.stringify(messageData.instance));
+
         try {
             const remoteJid = messageData.data.key.remoteJid;
             if(!remoteJid) return null      
@@ -42,7 +59,8 @@ export class ExternalWebSocketService {
                 text: message?.extendedTextMessage?.text || message?.conversation || null,
                 audioBase64: message?.base64 || null,
                 sender,
-                recipientId: 'DEFAULT_RECIPIENT'
+                recipientId: 'DEFAULT_RECIPIENT',
+                instance: messageData.instance
             };
             
         } catch (error) {
@@ -55,8 +73,6 @@ export class ExternalWebSocketService {
         try {
             const result = await this.transcriptionService.transcribeAudio(audioBase64 ?? '', 'pt') as { text: string };
 
-            console.log('Transcrição concluída:', (result as { text: string }).text);
-
             return result.text;
         } catch (error) {
             console.error('Erro na transcrição do áudio:', error);
@@ -64,19 +80,63 @@ export class ExternalWebSocketService {
         }
     }
 
+    //Salva as informações no banco de dados
     private async saveMessage(messageData: MessageData, transcribedText?: string) {
-        const messageText = messageData.text || transcribedText || '[Mensagem de áudio não transcrita]';
-
-        return await prisma.message.create({
-            data: {
-                text: messageText,
-                sender: messageData.sender,
-                recipientId: messageData.recipientId,
-                delivered: false,
-                hasAudio: !!messageData.audioBase64,
-                isTranscribed: !!transcribedText
+        try {
+            // Procurar por conversa ativa
+            const activeConversation = await prisma.conversation.findFirst({
+                where: {
+                    AND: [
+                        {
+                            participants: {
+                                some: {
+                                    participantId: messageData.sender
+                                }
+                            }
+                        },
+                        {
+                            status: ConversationStatus.OPEN
+                        }
+                    ]
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
+    
+            let conversation;
+            if (activeConversation) {
+                conversation = activeConversation;
+            } else {
+                conversation = await ConversationManager.createOrReopenConversation(
+                    messageData.sender,
+                    messageData.recipientId,
+                    messageData.instance!
+                );
             }
-        })
+    
+            const messageText = messageData.text || transcribedText || '[Mensagem de áudio não transcrita]';
+    
+            return await prisma.message.create({
+                data: {
+                    conversationId: conversation.id,
+                    text: messageText,
+                    sender: messageData.sender,
+                    recipientId: messageData.recipientId,
+                    status: 'sent',
+                    hasAudio: !!messageData.audioBase64,
+                    isTranscribed: !!transcribedText,
+                    messageType: messageData.audioBase64 ? 'audio' : 'text',
+                    metadata: {
+                        ...messageData.audioBase64 ? { hasAudioAttachment: true } : {},
+                        ticketNumber: conversation.ticketNumber
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao salvar mensagem:', error);
+            throw error;
+        }
     }
 
     private setupExternalSocketListeners() {
