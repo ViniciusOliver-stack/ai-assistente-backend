@@ -40,9 +40,6 @@ export class ExternalWebSocketService {
 
         this.aiService = new AIService(internalIo, instanceName!);
 
-
-        // this.transcriptionService = new AudioTranscriptionService(process.env.GROQ_API_KEY || "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");
-
         this.externalSocket = ioClient(instanceUrl, {
             transports: ['websocket']
         });
