@@ -133,6 +133,7 @@ model Agent {
 
   enterprise    String?
   providerModel String?
+  provider      String  @default("GROQ")
 
   temperature        Float?
   limitToken         Float?
