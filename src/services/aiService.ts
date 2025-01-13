@@ -1,12 +1,13 @@
 import Groq from "groq-sdk";
 import { Server as SocketServer } from "socket.io";
 import { AIResponse, SocketEvents } from "../types/events";
-import { globalEventEmitter } from "./eventEmitter";
 import prisma from "../config/database";
 import { ConversationStatus } from "@prisma/client";
+import { AIProvider } from "./ai/types";
+import { AIProviderFactory } from "./ai/factory";
 
 export class AIService {
-    private groq: Groq | null = null;
+    private provider: AIProvider | null = null;
     private io: SocketServer;
     private instanceName: string;
 
@@ -15,45 +16,49 @@ export class AIService {
         this.instanceName = instanceName;
     }
 
-    private async initializeGroqClient() {
+    private async initializeAIProvider() {
         const instance = await prisma.whatsAppInstance.findUnique({
             where: { instanceName: this.instanceName },
             include: {
                 agent: {
                     include: {
-                        token: true
+                        token: true,
+                        team: true,
                     }
                 }
             }
         });
 
-        if (!instance?.agent?.token?.key) {
-            throw new Error(`No API key found for instance ${this.instanceName}`);
+        if (!instance) {
+            throw new Error(`WhatsApp instance ${this.instanceName} not found`);
         }
 
-        this.groq = new Groq({
-            apiKey: instance.agent.token.key
-        });
+        if (!instance.agent) {
+            throw new Error(`No agent configured for instance ${this.instanceName}`);
+        }
 
-        return instance.agent;
-    }
+        if (!instance.agent.token?.key) {
+            throw new Error(`No API key found for agent in instance ${this.instanceName}`);
+        }
 
-    private async getAgentConfiguration() {
-        const instance = await prisma.whatsAppInstance.findUnique({
-            where: { instanceName: this.instanceName },
-            include: {
-                agent: {
-                    include: {
-                        token: true, // Include the API Key configuration
-                        team: true  // Include team information
-                    }
-                }
+        // Verify the agent belongs to the correct team
+        if (!instance.agent.team) {
+            throw new Error(`Agent not properly associated with a team`);
+        }
+
+        this.provider = AIProviderFactory.createProvider(
+            instance.agent.provider,
+            instance.agent.token.key,
+            {
+                ...instance.agent,
+                teamId: instance.agent.team.id,
+                temperature: instance.agent.temperature || 0.5,
+                limitToken: instance.agent.limitToken || 1024,
+                providerModel: instance.agent.providerModel,
+                restrictionContent: instance.agent.restrictionContent,
+                languageDetector: instance.agent.languageDetector
             }
-        });
-
-        if (!instance?.agent) {
-            throw new Error(`No agent configuration found for instance ${this.instanceName}`);
-        }
+        );
 
         return instance.agent;
     }
@@ -134,39 +139,15 @@ export class AIService {
         });
     }
 
-    // private async validateUserInstance(userId: string): Promise<boolean> {
-    //     console.log("VALIDANDO USUARIO: ", userId);
-    //     console.log("INSTANCIA: ", this.instanceName);
-    //     // Verificar se o usuário pertence a esta instância
-    //     const conversation = await prisma.conversation.findFirst({
-    //         where: {
-    //             AND: [
-    //                 {
-    //                     participants: {
-    //                         some: {
-    //                             participantId: userId
-    //                         }
-    //                     }
-    //                 },
-    //                 {
-    //                     instanceWhatsApp: this.instanceName
-    //                 }
-    //             ]
-    //         }
-    //     });
-
-    //     console.log("CONVERSA: ", conversation);
-
-    //     return !!conversation;
-    // }
-
     async processAIResponse(message: string, userId: string) {
         try {
-            // Inicializa o cliente Groq com a API key do banco
-            const agentConfig = await this.initializeGroqClient();
+            // Inicializa o provedor AI com a API key do banco
+            const agentConfig = await this.initializeAIProvider();
 
-            if (!this.groq) {
-                throw new Error('Failed to initialize Groq client');
+            console.log("AGENTE: ", agentConfig);
+
+            if (!this.provider) {
+                throw new Error('Failed to initialize AI provider');
             }
 
             // Configuração do prompt do sistema
@@ -174,25 +155,8 @@ export class AIService {
             
             const conversation = await this.getOrCreateConversation(userId, agentConfig);
 
-            // Gerar resposta da IA
-            const response = await this.groq.chat.completions.create({
-                messages: [
-                    {
-                        role: "user",
-                        content: message
-                    },
-                    {
-                        role: "system",
-                        content: systemPrompt || ""
-                    }
-                ],
-                model: agentConfig.providerModel || "llama-3.1-70b-versatile",
-                temperature: agentConfig.temperature || 0.5,
-                max_tokens: agentConfig.limitToken || 1024,
-            });
-
-            const aiResponse = response.choices[0]?.message?.content;
-            console.log('Resposta da IA:', aiResponse)
+            // Gerar resposta da IA usando o provedor inicializado
+            const aiResponse = await this.provider.generateResponse(message, systemPrompt as string);
 
             if (aiResponse) {
                 const savedMessage = await this.saveAIResponse(aiResponse, userId, conversation.id, agentConfig);
@@ -223,41 +187,31 @@ export class AIService {
             }
         } catch (error) {
             console.error('Erro ao processar resposta da IA:', error);
-            const errorData = {
-                error: 'Erro ao processar resposta da IA',
-                userId,
-                timestamp: new Date().toISOString(),
-                instanceName: this.instanceName
-            };
-            globalEventEmitter.emit(SocketEvents.ERROR, errorData);
-            this.io.emit(SocketEvents.ERROR, errorData);
             throw error;
         }
     }
 
     private async sendExternalMessage(text: string, userId: string) {
+        console.log("Nome da  Instância:", this.instanceName);
+        console.log("ID do Usuário:", userId);
         try {
             await fetch(
-                `https://symplus-evolution.3g77fw.easypanel.host/message/sendText/${this.instanceName}`,
+                `https://evolution.rubnik.com/message/sendText/${this.instanceName}`,
                 {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        apikey: "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ",
+                        apikey: "qbTMAT9bS7VZAXB2WWIL7NW9gL3hY7fn",
                     },
                     body: JSON.stringify({
                         number: userId,
-                        options: {
-                            delay: 1200,
-                            presence: "composing",
-                            linkPreview: true,
-                        },
-                        textMessage: {
-                            text,
-                        },
+                        delay: 1200,
+                        linkPreview: true,
+                        text,
                     }),
                 }
             );
+
         } catch (error) {
             console.error('Erro ao enviar mensagem externa:', error);
             throw error;
