@@ -40,9 +40,6 @@ export class ExternalWebSocketService {
 
         this.aiService = new AIService(internalIo, instanceName!);
 
-        // this.aiProvider = AIProviderFactory.createProvider(
-        //     "OpenAI",
-        //     process.env.GROQ_API_KEY || "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",)
 
         // this.transcriptionService = new AudioTranscriptionService(process.env.GROQ_API_KEY || "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");
 
