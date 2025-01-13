@@ -5,6 +5,8 @@ import prisma from '../config/database';
 import { AudioTranscriptionService } from './transcriptionAudioGroq';
 import { ConversationManager } from './conversationManager';
 import { ConversationStatus } from '@prisma/client';
+import { AIProvider } from './ai/types';
+import { AIProviderFactory } from './ai/factory';
 
 interface MessageData {
     text?: string;
@@ -14,23 +16,36 @@ interface MessageData {
     instance?: string
 }
 
+// Interfaces para a resposta da API
+interface Base64AudioResponse {
+    base64: string;
+    success: boolean;
+    message?: string;
+}
+
 export class ExternalWebSocketService {
     private externalSocket;
     private internalIo: SocketServer;
     private aiService: AIService;
-    private transcriptionService: AudioTranscriptionService;
+    // private transcriptionService: AudioTranscriptionService;
+    private aiProvider: AIProvider | null = null;
 
     constructor(internalIo: SocketServer, instanceUrl?: string) {
-        // if (!process.env.GROQ_API_KEY) {
-        //     throw new Error('API KEY não está definida nas variáveis de ambiente');
-        // }
         this.internalIo = internalIo;
-        const defaultUrl = "https://symplus-evolution.3g77fw.easypanel.host/SymplusTalk";
+        const defaultUrl = "https://evolution.rubnik.com/SymplusTalk";
         const finalUrl = instanceUrl || defaultUrl;
+        console.log('instanceUrl: ' + finalUrl);
         console.log('instanceUrl: ' + finalUrl.split("/").pop());
         const instanceName = finalUrl.split('/').pop() 
+
         this.aiService = new AIService(internalIo, instanceName!);
-        this.transcriptionService = new AudioTranscriptionService(process.env.GROQ_API_KEY || "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");
+
+        // this.aiProvider = AIProviderFactory.createProvider(
+        //     "OpenAI",
+        //     process.env.GROQ_API_KEY || "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",)
+
+        // this.transcriptionService = new AudioTranscriptionService(process.env.GROQ_API_KEY || "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");
+
         this.externalSocket = ioClient(instanceUrl, {
             transports: ['websocket']
         });
@@ -38,14 +53,82 @@ export class ExternalWebSocketService {
         this.setupExternalSocketListeners();
     }
 
-        // Add disconnect method
-        disconnect() {
-            if (this.externalSocket) {
-                this.externalSocket.disconnect();
-            }
+    // Add disconnect method
+    disconnect() {
+        if (this.externalSocket) {
+            this.externalSocket.disconnect();
         }
+    }
 
-    private extractMessageContent(messageData: any): MessageData | null {
+    private async fetchBase64Audio(messageId: string, instance: string): Promise<string | null> {
+        try {
+            const response = await fetch(
+            `https://evolution.rubnik.com/chat/getBase64FromMediaMessage/${instance}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': 'qbTMAT9bS7VZAXB2WWIL7NW9gL3hY7fn'
+                    },
+                    body: JSON.stringify({
+                        message: {
+                            key: {
+                                id: messageId
+                            }
+                        },
+                        convertToMp4: false
+                    })
+                }
+            );
+    
+            if (!response.ok) {
+                throw new Error(`Failed to fetch base64 audio: ${response.statusText}`);
+            }
+    
+            const data = await response.json() as  Base64AudioResponse;
+
+            console.log("Data audio base64: " + JSON.stringify(data));
+
+            return data.base64;
+            } catch (error) {
+                console.error('Error fetching base64 audio:', error);
+                return null;
+            }
+    }
+
+    private async initializeTranscriptionProvider(instanceName: string) {
+        try {
+            const instance = await prisma.whatsAppInstance.findUnique({
+                where: { instanceName },
+                include: {
+                    agent: {
+                        include: {
+                            token: true,
+                            team: true
+                        }
+                    }
+                }
+            });
+
+            if (!instance?.agent?.token?.key) {
+                throw new Error(`No API key found for instance ${instanceName}`);
+            }
+
+            this.aiProvider = AIProviderFactory.createProvider(
+                instance.agent.provider,
+                instance.agent.token.key,
+                {
+                    ...instance.agent,
+                    teamId: instance.agent.team?.id
+                }
+            );
+        } catch (error) {
+            console.error('Error initializing transcription provider:', error);
+            throw error;
+        }
+    }
+
+    private async extractMessageContent(messageData: any): Promise <MessageData | null> {
 
         console.log("Mensagem data: " + JSON.stringify(messageData.instance));
 
@@ -55,9 +138,21 @@ export class ExternalWebSocketService {
 
             const sender = remoteJid.split('@')[0];
             const message = messageData.data.message;
+
+            let audioBase64 = null;
+
+            // Check if message contains audio
+            if (message?.audioMessage) {
+                // Try to get base64 from API if not directly available
+                audioBase64 = message.base64 || await this.fetchBase64Audio(
+                    messageData.data.key.id,
+                    messageData.instance
+                );
+            }
+
             return {
                 text: message?.extendedTextMessage?.text || message?.conversation || null,
-                audioBase64: message?.base64 || null,
+                audioBase64,
                 sender,
                 recipientId: 'DEFAULT_RECIPIENT',
                 instance: messageData.instance
@@ -69,11 +164,17 @@ export class ExternalWebSocketService {
         }
     }
 
-    private async processTranscriptionMessage(audioBase64: string): Promise<string> {
+    private async processTranscriptionMessage(audioBase64: string, instanceName: string): Promise<string> {
         try {
-            const result = await this.transcriptionService.transcribeAudio(audioBase64 ?? '', 'pt') as { text: string };
+            if (!this.aiProvider) {
+                await this.initializeTranscriptionProvider(instanceName);
+            }
 
-            return result.text;
+            if (!this.aiProvider?.transcribeAudio) {
+                throw new Error('Audio transcription not supported by this provider');
+            }
+
+            return await this.aiProvider.transcribeAudio(audioBase64, 'pt');
         } catch (error) {
             console.error('Erro na transcrição do áudio:', error);
             throw error;
@@ -148,7 +249,7 @@ export class ExternalWebSocketService {
             try {
                 console.log('Mensagem recebida:', JSON.stringify(messageData, null, 2));
                 
-                const extractedData = this.extractMessageContent(messageData);
+                const extractedData = await this.extractMessageContent(messageData);
                 if(!extractedData) {
                     console.error('Erro ao extrair dados da mensagem');
                     return;
@@ -157,13 +258,15 @@ export class ExternalWebSocketService {
                 let transcribedText: string | undefined;
                 if (extractedData.audioBase64 && !extractedData.text) {
                     try {
-                        transcribedText = await this.processTranscriptionMessage(extractedData.audioBase64);
+                        transcribedText = await this.processTranscriptionMessage(extractedData.audioBase64, extractedData.instance!);
                     } catch (error) {
                         console.error('Erro na transcrição:', error);
                     }
                 }
 
                 const savedMessage = await this.saveMessage(extractedData, transcribedText);
+
+                console.log('Mensagem salva com sucesso:', savedMessage)
 
                 // Emitir mensagem para o frontend
                 this.internalIo.emit('new_message', {
