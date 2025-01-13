@@ -101,7 +101,7 @@ export class WhatsAppInstanceManager {
         try {
             const wsService = new ExternalWebSocketService(
                 this.internalIo,
-                `https://symplus-evolution.3g77fw.easypanel.host/${instance.instanceName}`
+                `https://evolution.rubnik.com/${instance.instanceName}`
             );
             
             this.instances.set(instance.instanceName, wsService);
