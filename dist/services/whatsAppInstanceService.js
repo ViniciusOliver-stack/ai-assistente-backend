@@ -85,7 +85,7 @@ class WhatsAppInstanceManager {
     }
     async createInstanceConnection(instance) {
         try {
-            const wsService = new externalWebSocket_1.ExternalWebSocketService(this.internalIo, `https://symplus-evolution.3g77fw.easypanel.host/${instance.instanceName}`);
+            const wsService = new externalWebSocket_1.ExternalWebSocketService(this.internalIo, `https://evolution.rubnik.com/${instance.instanceName}`);
             this.instances.set(instance.instanceName, wsService);
             console.log(`Connected to instance: ${instance.instanceName}`);
             return wsService;
