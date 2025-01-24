@@ -15,12 +15,12 @@ export class GroqProvider implements AIProvider {
     }
 
     async generateResponse(message: string, systemPrompt?: string): Promise<string> {
-        const systemPromptMessage = systemPrompt + "Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia."
+        console.log("Prompt da IA GROQ:", systemPrompt);
 
         const response = await this.client.chat.completions.create({
             messages: [
                 { role: "user", content: message },
-                { role: "system", content: systemPromptMessage || "" }
+                { role: "system", content: systemPrompt || "" }
             ],
             model: this.data.providerModel || "llama-3.1-70b-versatile",
             temperature: this.data.temperature || 0.5,
