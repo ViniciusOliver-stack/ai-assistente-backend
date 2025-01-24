@@ -133,7 +133,7 @@ model Agent {
 
   enterprise    String?
   providerModel String?
-  provider      String  @default("GROQ")
+  provider      String  @default("OPENAI")
 
   temperature        Float?
   limitToken         Float?
@@ -177,7 +177,7 @@ model ApiKey {
 
 model WhatsAppInstance {
   id           String   @id @default(cuid())
-  instanceName String   @unique // Nome completo com UUID
+  instanceName String   @unique
   displayName  String? // Nome de exibição sem UUID
   instanceId   String   @unique
   status       String
@@ -194,6 +194,7 @@ model WhatsAppInstance {
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String
 
+  // @@unique([instanceId, teamId, agentId])
   @@index([teamId])
   @@index([agentId])
 }
@@ -225,6 +226,7 @@ model Conversation {
   participants     ConversationParticipant[]
   messages         Message[]
   metadata         Json?
+  isAIEnabled      Boolean                   @default(true)
 }
 
 enum ConversationStatus {
