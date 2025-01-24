@@ -133,7 +133,8 @@ export class AIService {
                 metadata: {
                     aiModel: agentConfig.providerModel,
                     agentTitle: agentConfig.title,
-                    teamId: agentConfig.teamId
+                    teamId: agentConfig.teamId,
+                    instanceName: this.instanceName,
                 }
             }
         });
@@ -141,6 +142,30 @@ export class AIService {
 
     async processAIResponse(message: string, userId: string) {
         try {
+            const conversationStatusAI = await prisma.conversation.findFirst({
+                where: {
+                    AND: [
+                        {
+                            participants: {
+                                some: {
+                                    participantId: userId
+                                }
+                            }
+                        },
+                        {
+                            instanceWhatsApp: this.instanceName
+                        }
+                    ]
+                }
+            });
+
+            console.log("Conversation AI Enabled: ", conversationStatusAI?.isAIEnabled)
+
+            if(conversationStatusAI && !conversationStatusAI.isAIEnabled) {
+                console.log("Não tem conversa ativa ou o AI está habilitado")
+                return
+            }
+
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
 
@@ -151,7 +176,7 @@ export class AIService {
             }
 
             // Configuração do prompt do sistema
-            const systemPrompt = agentConfig.prompt + "Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia."
+            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.` 
             
             const conversation = await this.getOrCreateConversation(userId, agentConfig);
 
@@ -180,7 +205,8 @@ export class AIService {
                     messageTo: userId,
                     conversationId: conversation.id,
                     instanceName: this.instanceName,
-                    agentTitle: agentConfig.title
+                    agentTitle: agentConfig.title,
+                    metadata: savedMessage.metadata
                 });
 
                 return responseData;
@@ -194,8 +220,9 @@ export class AIService {
     private async sendExternalMessage(text: string, userId: string) {
         console.log("Nome da  Instância:", this.instanceName);
         console.log("ID do Usuário:", userId);
+        console.log("Texto da Mensagem:", text);
         try {
-            await fetch(
+            const response = await fetch(
                 `https://evolution.rubnik.com/message/sendText/${this.instanceName}`,
                 {
                     method: "POST",
@@ -205,12 +232,14 @@ export class AIService {
                     },
                     body: JSON.stringify({
                         number: userId,
+                        text,
                         delay: 1200,
                         linkPreview: true,
-                        text,
                     }),
                 }
             );
+
+            console.log("RESPOSTA DA API:", response);
 
         } catch (error) {
             console.error('Erro ao enviar mensagem externa:', error);
