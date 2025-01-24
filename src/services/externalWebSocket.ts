@@ -224,7 +224,8 @@ export class ExternalWebSocketService {
                     messageType: messageData.audioBase64 ? 'audio' : 'text',
                     metadata: {
                         ...messageData.audioBase64 ? { hasAudioAttachment: true } : {},
-                        ticketNumber: conversation.ticketNumber
+                        ticketNumber: conversation.ticketNumber,
+                        instance: messageData.instance
                     }
                 }
             });
@@ -268,8 +269,10 @@ export class ExternalWebSocketService {
                     text: savedMessage.text,
                     sender: savedMessage.sender,
                     timestamp: savedMessage.timestamp,
+                    conversationId: savedMessage.conversationId,
                     hasAudio: savedMessage.hasAudio,
-                    isTranscribed: savedMessage.isTranscribed
+                    isTranscribed: savedMessage.isTranscribed,
+                    metadata: savedMessage.metadata,
                 });
 
                 // Processar e enviar resposta da IA
