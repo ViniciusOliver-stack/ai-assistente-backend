@@ -23,7 +23,7 @@ class OpenAIProvider {
                 { role: "user", content: message },
                 { role: "system", content: systemPromptMessage || "" }
             ],
-            model: "gpt-4o-mini",
+            model: this.data.providerModel || "gpt-4o-mini",
             temperature: this.data.temperature || 0.5,
             max_tokens: this.data.limitToken || 1024,
         });

@@ -31,13 +31,16 @@ const instanceManager = new whatsAppInstanceService_1.WhatsAppInstanceManager(io
 app.use('/api/messages', (0, messageRoutes_1.createMessageRouter)(io));
 // Gerenciamento de conexões WebSocket internas
 io.on('connection', (socket) => {
-    console.log('Cliente conectado:', socket.id);
-    socket.on('register', (userId) => {
-        socket.join(userId);
-        console.log(`Usuário ${userId} registrado`);
+    const { instanceId, teamId, agentId } = socket.handshake.query;
+    socket.on('join_instance', (data) => {
+        const room = `${data.instanceId}:${data.teamId}:${data.agentId}`;
+        socket.join(room);
+        console.log(`Client joined room: ${room}`);
     });
-    socket.on('disconnect', () => {
-        console.log('Cliente desconectado:', socket.id);
+    socket.on('leave_instance', (data) => {
+        const room = `${data.instanceId}:${data.teamId}:${data.agentId}`;
+        socket.leave(room);
+        console.log(`Client left room: ${room}`);
     });
 });
 // Example of adding a new instance

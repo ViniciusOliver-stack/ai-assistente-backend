@@ -109,13 +109,35 @@ class AIService {
                 metadata: {
                     aiModel: agentConfig.providerModel,
                     agentTitle: agentConfig.title,
-                    teamId: agentConfig.teamId
+                    teamId: agentConfig.teamId,
+                    instanceName: this.instanceName,
                 }
             }
         });
     }
     async processAIResponse(message, userId) {
         try {
+            const conversationStatusAI = await database_1.default.conversation.findFirst({
+                where: {
+                    AND: [
+                        {
+                            participants: {
+                                some: {
+                                    participantId: userId
+                                }
+                            }
+                        },
+                        {
+                            instanceWhatsApp: this.instanceName
+                        }
+                    ]
+                }
+            });
+            console.log("Conversation AI Enabled: ", conversationStatusAI === null || conversationStatusAI === void 0 ? void 0 : conversationStatusAI.isAIEnabled);
+            if (conversationStatusAI && !conversationStatusAI.isAIEnabled) {
+                console.log("Não tem conversa ativa ou o AI está habilitado");
+                return;
+            }
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
             console.log("AGENTE: ", agentConfig);
@@ -123,7 +145,7 @@ class AIService {
                 throw new Error('Failed to initialize AI provider');
             }
             // Configuração do prompt do sistema
-            const systemPrompt = agentConfig.prompt + "Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.";
+            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.`;
             const conversation = await this.getOrCreateConversation(userId, agentConfig);
             // Gerar resposta da IA usando o provedor inicializado
             const aiResponse = await this.provider.generateResponse(message, systemPrompt);
@@ -146,7 +168,8 @@ class AIService {
                     messageTo: userId,
                     conversationId: conversation.id,
                     instanceName: this.instanceName,
-                    agentTitle: agentConfig.title
+                    agentTitle: agentConfig.title,
+                    metadata: savedMessage.metadata
                 });
                 return responseData;
             }
@@ -159,8 +182,9 @@ class AIService {
     async sendExternalMessage(text, userId) {
         console.log("Nome da  Instância:", this.instanceName);
         console.log("ID do Usuário:", userId);
+        console.log("Texto da Mensagem:", text);
         try {
-            await fetch(`https://evolution.rubnik.com/message/sendText/${this.instanceName}`, {
+            const response = await fetch(`https://evolution.rubnik.com/message/sendText/${this.instanceName}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -168,11 +192,12 @@ class AIService {
                 },
                 body: JSON.stringify({
                     number: userId,
+                    text,
                     delay: 1200,
                     linkPreview: true,
-                    text,
                 }),
             });
+            console.log("RESPOSTA DA API:", response);
         }
         catch (error) {
             console.error('Erro ao enviar mensagem externa:', error);

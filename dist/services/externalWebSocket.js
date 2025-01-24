@@ -170,7 +170,7 @@ class ExternalWebSocketService {
                     hasAudio: !!messageData.audioBase64,
                     isTranscribed: !!transcribedText,
                     messageType: messageData.audioBase64 ? 'audio' : 'text',
-                    metadata: Object.assign(Object.assign({}, messageData.audioBase64 ? { hasAudioAttachment: true } : {}), { ticketNumber: conversation.ticketNumber })
+                    metadata: Object.assign(Object.assign({}, messageData.audioBase64 ? { hasAudioAttachment: true } : {}), { ticketNumber: conversation.ticketNumber, instance: messageData.instance })
                 }
             });
         }
@@ -208,8 +208,10 @@ class ExternalWebSocketService {
                     text: savedMessage.text,
                     sender: savedMessage.sender,
                     timestamp: savedMessage.timestamp,
+                    conversationId: savedMessage.conversationId,
                     hasAudio: savedMessage.hasAudio,
-                    isTranscribed: savedMessage.isTranscribed
+                    isTranscribed: savedMessage.isTranscribed,
+                    metadata: savedMessage.metadata,
                 });
                 // Processar e enviar resposta da IA
                 await this.aiService.processAIResponse(transcribedText || extractedData.text || '', extractedData.sender);
