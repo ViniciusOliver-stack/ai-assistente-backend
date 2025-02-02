@@ -164,10 +164,35 @@ export class AIService {
             if(conversationStatusAI && !conversationStatusAI.isAIEnabled) {
                 console.log("Não tem conversa ativa ou o AI está habilitado")
                 return
-            }
+            }  
 
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
+
+            const teamWithOwner = await prisma.team.findUnique({
+                where: { id: agentConfig.teamId },
+                include: {
+                    owner: {
+                        select: {
+                            trialEndDate: true,
+                            stripeSubscriptionStatus: true,
+                        }
+                    }
+                }
+            });
+    
+            if (!teamWithOwner || !teamWithOwner.owner) {
+                throw new Error('Time ou proprietário não encontrado');
+            }
+
+            const now = new Date();
+            const trialEnded = teamWithOwner.owner.trialEndDate && 
+                            teamWithOwner.owner.trialEndDate < now;
+            const notSubscribed = teamWithOwner.owner.stripeSubscriptionStatus !== 'active';
+
+            if (trialEnded && notSubscribed) {
+                throw new Error('Período de teste expirado...');
+            }
 
             console.log("AGENTE: ", agentConfig);
 
