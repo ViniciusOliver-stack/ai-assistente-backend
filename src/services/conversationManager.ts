@@ -14,8 +14,6 @@ import prisma from '../config/database';
 export class ConversationManager {
     static async createOrReopenConversation(userId: string, recipientId: string, instanceWhatsApp: string) {
 
-        console.log("Instância CAPTURADA: ", instanceWhatsApp);
-
         // Procurar por conversa fechada recente
         const recentClosedConversation = await prisma.conversation.findFirst({
             where: {

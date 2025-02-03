@@ -15,8 +15,6 @@ export class GroqProvider implements AIProvider {
     }
 
     async generateResponse(message: string, systemPrompt?: string): Promise<string> {
-        console.log("Prompt da IA GROQ:", systemPrompt);
-
         const response = await this.client.chat.completions.create({
             messages: [
                 { role: "user", content: message },
@@ -26,8 +24,6 @@ export class GroqProvider implements AIProvider {
             temperature: this.data.temperature || 0.5,
             max_tokens: this.data.limitToken || 1024,
         });
-
-        console.log("Resposta da IA GROQ:", response.choices[0]?.message?.content);
 
         return response.choices[0]?.message?.content || "";
     }
@@ -72,7 +68,6 @@ export class GroqProvider implements AIProvider {
             }
 
             const result = await response.json() as { text: string };
-            // console.log("Transcrição da IA GROQ:", result.text);
             return result.text;
         } catch (error) {
             console.error('Error transcribing audio:', error);

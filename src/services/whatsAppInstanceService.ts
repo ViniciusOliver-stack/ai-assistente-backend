@@ -27,8 +27,6 @@ export class WhatsAppInstanceManager {
                 }
             });
 
-            console.log('Active instances:', activeInstances);
-
             for (const instance of activeInstances) {
                 await this.createInstanceConnection(instance);
             }
