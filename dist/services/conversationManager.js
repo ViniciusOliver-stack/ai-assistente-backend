@@ -18,7 +18,6 @@ var TicketPriority;
 const database_1 = __importDefault(require("../config/database"));
 class ConversationManager {
     static async createOrReopenConversation(userId, recipientId, instanceWhatsApp) {
-        console.log("Instância CAPTURADA: ", instanceWhatsApp);
         // Procurar por conversa fechada recente
         const recentClosedConversation = await database_1.default.conversation.findFirst({
             where: {

@@ -17,8 +17,6 @@ class ExternalWebSocketService {
         this.internalIo = internalIo;
         const defaultUrl = "https://evolution.rubnik.com/SymplusTalk";
         const finalUrl = instanceUrl || defaultUrl;
-        console.log('instanceUrl: ' + finalUrl);
-        console.log('instanceUrl: ' + finalUrl.split("/").pop());
         const instanceName = finalUrl.split('/').pop();
         this.aiService = new aiService_1.AIService(internalIo, instanceName);
         this.externalSocket = (0, socket_io_client_1.io)(instanceUrl, {
@@ -53,7 +51,6 @@ class ExternalWebSocketService {
                 throw new Error(`Failed to fetch base64 audio: ${response.statusText}`);
             }
             const data = await response.json();
-            console.log("Data audio base64: " + JSON.stringify(data));
             return data.base64;
         }
         catch (error) {
@@ -87,7 +84,6 @@ class ExternalWebSocketService {
     }
     async extractMessageContent(messageData) {
         var _a;
-        console.log("Mensagem data: " + JSON.stringify(messageData.instance));
         try {
             const remoteJid = messageData.data.key.remoteJid;
             if (!remoteJid)
@@ -185,7 +181,6 @@ class ExternalWebSocketService {
         });
         this.externalSocket.on('messages.upsert', async (messageData) => {
             try {
-                console.log('Mensagem recebida:', JSON.stringify(messageData, null, 2));
                 const extractedData = await this.extractMessageContent(messageData);
                 if (!extractedData) {
                     console.error('Erro ao extrair dados da mensagem');
@@ -201,7 +196,6 @@ class ExternalWebSocketService {
                     }
                 }
                 const savedMessage = await this.saveMessage(extractedData, transcribedText);
-                console.log('Mensagem salva com sucesso:', savedMessage);
                 // Emitir mensagem para o frontend
                 this.internalIo.emit('new_message', {
                     id: savedMessage.id,

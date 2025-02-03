@@ -15,8 +15,7 @@ class GroqProvider {
         this.data = data;
     }
     async generateResponse(message, systemPrompt) {
-        var _a, _b, _c, _d;
-        console.log("Prompt da IA GROQ:", systemPrompt);
+        var _a, _b;
         const response = await this.client.chat.completions.create({
             messages: [
                 { role: "user", content: message },
@@ -26,8 +25,7 @@ class GroqProvider {
             temperature: this.data.temperature || 0.5,
             max_tokens: this.data.limitToken || 1024,
         });
-        console.log("Resposta da IA GROQ:", (_b = (_a = response.choices[0]) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.content);
-        return ((_d = (_c = response.choices[0]) === null || _c === void 0 ? void 0 : _c.message) === null || _d === void 0 ? void 0 : _d.content) || "";
+        return ((_b = (_a = response.choices[0]) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.content) || "";
     }
     async base64ToTempFile(base64Data) {
         const base64Audio = base64Data.replace(/^data:audio\/\w+;base64,/, '');
@@ -63,7 +61,6 @@ class GroqProvider {
                 throw new Error(`GROQ API error: ${JSON.stringify(errorData)}`);
             }
             const result = await response.json();
-            // console.log("Transcrição da IA GROQ:", result.text);
             return result.text;
         }
         catch (error) {

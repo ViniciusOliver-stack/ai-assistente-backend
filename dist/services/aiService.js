@@ -133,7 +133,6 @@ class AIService {
                     ]
                 }
             });
-            console.log("Conversation AI Enabled: ", conversationStatusAI === null || conversationStatusAI === void 0 ? void 0 : conversationStatusAI.isAIEnabled);
             if (conversationStatusAI && !conversationStatusAI.isAIEnabled) {
                 console.log("Não tem conversa ativa ou o AI está habilitado");
                 return;
@@ -161,7 +160,6 @@ class AIService {
             if (trialEnded && notSubscribed) {
                 throw new Error('Período de teste expirado...');
             }
-            console.log("AGENTE: ", agentConfig);
             if (!this.provider) {
                 throw new Error('Failed to initialize AI provider');
             }
@@ -201,9 +199,6 @@ class AIService {
         }
     }
     async sendExternalMessage(text, userId) {
-        console.log("Nome da  Instância:", this.instanceName);
-        console.log("ID do Usuário:", userId);
-        console.log("Texto da Mensagem:", text);
         try {
             const response = await fetch(`https://evolution.rubnik.com/message/sendText/${this.instanceName}`, {
                 method: "POST",
@@ -218,7 +213,6 @@ class AIService {
                     linkPreview: true,
                 }),
             });
-            console.log("RESPOSTA DA API:", response);
         }
         catch (error) {
             console.error('Erro ao enviar mensagem externa:', error);

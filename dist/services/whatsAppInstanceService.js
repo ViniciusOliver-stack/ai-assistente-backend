@@ -25,7 +25,6 @@ class WhatsAppInstanceManager {
                     status: 'open'
                 }
             });
-            console.log('Active instances:', activeInstances);
             for (const instance of activeInstances) {
                 await this.createInstanceConnection(instance);
             }
