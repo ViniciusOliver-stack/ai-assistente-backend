@@ -38,6 +38,10 @@ model User {
   stripeSubscriptionId     String?
   stripeSubscriptionStatus String?
   stripePriceId            String?
+  trialStartDate           DateTime?
+  trialEndDate             DateTime?
+
+  setupCompleted Boolean @default(false)
 }
 
 model Account {
@@ -97,7 +101,7 @@ model Authenticator {
 
 model Team {
   id          String   @id @default(cuid())
-  name        String   @unique
+  name        String
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -153,6 +157,7 @@ model Agent {
 
 model Plan {
   id                String   @id @default(cuid())
+  stripePriceId     String?  @unique // Novo campo para ID do preço no Stripe
   name              String   @unique
   maxTeams          Int //Quantidade máxima de equipes
   maxMembersPerTeam Int //Quantidade máxima de membros por equipe
@@ -194,7 +199,7 @@ model WhatsAppInstance {
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String
 
-  // @@unique([instanceId, teamId, agentId])
+  @@unique([instanceId, teamId, agentId])
   @@index([teamId])
   @@index([agentId])
 }
@@ -273,4 +278,27 @@ model Message {
   metadata       Json?
 
   @@index([conversationId, timestamp])
+}
+
+model Memory {
+  id           String   @id @default(cuid())
+  content      String
+  instanceName String
+  userId       String
+  createdAt    DateTime @default(now())
+
+  @@index([instanceName, userId])
+}
+
+model UserMemory {
+  id         String   @id @default(cuid())
+  userId     String // Número de telefone
+  instanceId String // Identificador da instância
+  key        String // Chave da informação
+  value      String // Valor da informação
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, instanceId, key])
 }
