@@ -12,8 +12,6 @@ export class OpenAIProvider implements AIProvider {
     constructor(apiKey: string, data: any) {
         this.client = new OpenAI({ apiKey });
         this.data = data;
-
-        console.log("Dados da IA OpenAI:", data);
     }
 
     async generateResponse(message: string, systemPrompt?: string): Promise<string> {
@@ -21,15 +19,15 @@ export class OpenAIProvider implements AIProvider {
 
         const response = await this.client.chat.completions.create({
             messages: [
+                { role: "system", content: systemPromptMessage || "" },
                 { role: "user", content: message },
-                { role: "system", content: systemPromptMessage || "" }
             ],
             model: this.data.providerModel || "gpt-4o-mini",
             temperature: this.data.temperature || 0.5,
             max_tokens: this.data.limitToken || 1024,
         });
 
-        console.log("Resposta da IA OpenAI:", response.choices[0]?.message?.content);
+        console.log("Response from OpenAI:", response);
 
         return response.choices[0]?.message?.content || "";
     }
@@ -48,28 +46,23 @@ export class OpenAIProvider implements AIProvider {
         try {
             const audioFilePath = await this.base64ToTempFile(audioBase64);
 
-            // console.log("Arquivo de áudio temporário:", audioFilePath);
-
             const audioFile = new File(
                 [await readFile(audioFilePath)],
                 'audio.ogg',
                 { type: 'audio/ogg' }
             )
 
-            // console.log("Arquivo de áudio criado:", audioFile);
-            
             const response = await this.client.audio.transcriptions.create({
                 file: audioFile,
                 model: "whisper-1",
                 language: language,
-                response_format: "text"
+                response_format: "json"
             });
 
             // Limpar o arquivo temporário
             await unlink(audioFilePath).catch(console.error);
 
-            // console.log("Transcrição da IA OpenAI:", response);
-            return response;
+            return response.text;
         } catch (error) {
             console.error('Error transcribing audio:', error);
             throw error;
