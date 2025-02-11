@@ -2,11 +2,11 @@ import { io as ioClient } from 'socket.io-client';
 import { Server as SocketServer } from 'socket.io';
 import { AIService } from './aiService';
 import prisma from '../config/database';
-import { AudioTranscriptionService } from './transcriptionAudioGroq';
 import { ConversationManager } from './conversationManager';
 import { ConversationStatus } from '@prisma/client';
 import { AIProvider } from './ai/types';
 import { AIProviderFactory } from './ai/factory';
+import { MessageBufferService } from './messageBuffer';
 
 interface MessageData {
     text?: string;
@@ -29,6 +29,7 @@ export class ExternalWebSocketService {
     private aiService: AIService;
     // private transcriptionService: AudioTranscriptionService;
     private aiProvider: AIProvider | null = null;
+    private messageBuffer: MessageBufferService;
 
     constructor(internalIo: SocketServer, instanceUrl?: string) {
         this.internalIo = internalIo;
@@ -37,6 +38,7 @@ export class ExternalWebSocketService {
         const instanceName = finalUrl.split('/').pop() 
 
         this.aiService = new AIService(internalIo, instanceName!);
+        this.messageBuffer = MessageBufferService.getInstance()
 
         this.externalSocket = ioClient(instanceUrl, {
             transports: ['websocket']
@@ -241,6 +243,8 @@ export class ExternalWebSocketService {
                     return;
                 }
 
+                let messageText = extractedData.text || '';
+
                 let transcribedText: string | undefined;
                 if (extractedData.audioBase64 && !extractedData.text) {
                     try {
@@ -250,25 +254,77 @@ export class ExternalWebSocketService {
                     }
                 }
 
-                const savedMessage = await this.saveMessage(extractedData, transcribedText);
+                if (!messageText) {
+                    console.log('Mensagem vazia, ignorando...');
+                    return;
+                }
 
-                // Emitir mensagem para o frontend
-                this.internalIo.emit('new_message', {
-                    id: savedMessage.id,
-                    text: savedMessage.text,
-                    sender: savedMessage.sender,
-                    timestamp: savedMessage.timestamp,
-                    conversationId: savedMessage.conversationId,
-                    hasAudio: savedMessage.hasAudio,
-                    isTranscribed: savedMessage.isTranscribed,
-                    metadata: savedMessage.metadata,
-                });
-
-                // Processar e enviar resposta da IA
-                await this.aiService.processAIResponse(
-                    transcribedText || extractedData.text || '',
-                    extractedData.sender
+                // Adicionar mensagem ao buffer e obter mensagem combinada se o buffer estiver pronto
+                const bufferedMessage = await this.messageBuffer.addMessage(
+                    extractedData.sender,
+                    messageText
                 );
+
+                if (bufferedMessage) {
+                    console.log('Processando mensagem combinada:', bufferedMessage);
+
+                    const savedMessage = await this.saveMessage(
+                        {...extractedData, text: bufferedMessage},
+                        transcribedText
+                    );
+
+                    // Emit message to frontend
+                    this.internalIo.emit('new_message', {
+                        id: savedMessage.id,
+                        text: savedMessage.text,
+                        sender: savedMessage.sender,
+                        timestamp: savedMessage.timestamp,
+                        conversationId: savedMessage.conversationId,
+                        hasAudio: savedMessage.hasAudio,
+                        isTranscribed: savedMessage.isTranscribed,
+                        metadata: savedMessage.metadata,
+                    });
+
+                    // Process with AI and handle the response
+                    try {
+                        const aiResponse = await this.aiService.processAIResponse(
+                            bufferedMessage,
+                            extractedData.sender
+                        );
+                        
+                        if (aiResponse) {
+                            console.log('Resposta da IA recebida:', aiResponse);
+                            
+                            // Additional logging for debugging
+                            console.log('Enviando resposta para:', extractedData.sender);
+                            console.log('Conteúdo da resposta:', aiResponse.text);
+                        } else {
+                            console.error('Resposta da IA está vazia');
+                        }
+                    } catch (error) {
+                        console.error('Erro ao processar resposta da IA:', error);
+                    }
+                }
+
+                // const savedMessage = await this.saveMessage(extractedData, transcribedText);
+
+                // // Emitir mensagem para o frontend
+                // this.internalIo.emit('new_message', {
+                //     id: savedMessage.id,
+                //     text: savedMessage.text,
+                //     sender: savedMessage.sender,
+                //     timestamp: savedMessage.timestamp,
+                //     conversationId: savedMessage.conversationId,
+                //     hasAudio: savedMessage.hasAudio,
+                //     isTranscribed: savedMessage.isTranscribed,
+                //     metadata: savedMessage.metadata,
+                // });
+
+                // // Processar e enviar resposta da IA
+                // await this.aiService.processAIResponse(
+                //     transcribedText || extractedData.text || '',
+                //     extractedData.sender
+                // );
 
             } catch (error) {
                 console.error('Erro ao processar mensagem:', error);

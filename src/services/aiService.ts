@@ -5,11 +5,14 @@ import prisma from "../config/database";
 import { ConversationStatus } from "@prisma/client";
 import { AIProvider } from "./ai/types";
 import { AIProviderFactory } from "./ai/factory";
+import { OpenAIAssistantProvider } from "./ai/providers/openai-assistant.provider";
+import { MessageBufferService } from "./messageBuffer";
 
 export class AIService {
     private provider: AIProvider | null = null;
     private io: SocketServer;
     private instanceName: string;
+    private assistantProvider: OpenAIAssistantProvider | null = null;
 
     constructor(io: SocketServer, instanceName: string) {
         this.io = io;
@@ -59,6 +62,14 @@ export class AIService {
                 languageDetector: instance.agent.languageDetector
             }
         );
+
+        //Inicializar o assistantProvider
+        if(instance.agent.provider === 'OPENAI') {
+            this.assistantProvider = new OpenAIAssistantProvider(
+                instance.agent.token.key,
+                instance.agent
+            )
+        }
 
         return instance.agent;
     }
@@ -140,7 +151,14 @@ export class AIService {
         });
     }
 
-    async processAIResponse(message: string, userId: string) {
+    async processAIResponse(message: string, userId: string, audioTranscription?: string) {
+        const messageBuffer = MessageBufferService.getInstance();
+        const bufferedMessage = await messageBuffer.addMessage(userId, message)
+
+        if(!bufferedMessage) {
+            return
+        }
+
         try {
             const conversationStatusAI = await prisma.conversation.findFirst({
                 where: {
@@ -162,10 +180,61 @@ export class AIService {
             if(conversationStatusAI && !conversationStatusAI.isAIEnabled) {
                 console.log("Não tem conversa ativa ou o AI está habilitado")
                 return
-            }  
+            }
 
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
+            const conversation = await this.getOrCreateConversation(userId, agentConfig);
+
+          let aiResponse: string;
+
+            if (this.assistantProvider) {
+                // Verificar ou criar assistant para o time
+                let assistant = await prisma.assistant.findFirst({
+                    where: { teamId: agentConfig.teamId }
+                });
+
+            // Configuração do prompt do sistema
+            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.
+            
+            Se não tiver o nome do cliente, pergunte: "Qual o seu nome?" antes de prosseguir com qualquer outro diálogo.` 
+
+            console.log("PROMPT: ", systemPrompt)
+            console.log("AGENT CONFIG: ", agentConfig)
+
+            if (!assistant) {
+                assistant = await this.assistantProvider.createAssistant(
+                    `${agentConfig.title} Assistant`,
+                    systemPrompt || "Você é um assistente prestativo.",
+                    agentConfig.teamId
+                );
+            } else if (assistant.instructions !== systemPrompt) {
+                //Se o prompt foi alterado, atualizar o assistant
+                assistant = await this.assistantProvider.updateAssistant(
+                    assistant.assistantId,
+                    systemPrompt
+                )
+            }
+
+                // Obter ou criar thread
+                const thread = await this.assistantProvider.getOrCreateThread(
+                    userId,
+                    conversation.id,
+                    assistant.id
+                );
+
+                // Gerar resposta usando o assistant
+                aiResponse = await this.assistantProvider.generateResponse(
+                    message,
+                    thread.threadId,
+                    assistant.assistantId,
+                    audioTranscription
+                );
+            } else {
+                // Fallback para o provider padrão
+                aiResponse = await this.provider!.generateResponse(message, agentConfig.prompt!);
+            }
+
 
             const teamWithOwner = await prisma.team.findUnique({
                 where: { id: agentConfig.teamId },
@@ -196,13 +265,8 @@ export class AIService {
                 throw new Error('Failed to initialize AI provider');
             }
 
-            // Configuração do prompt do sistema
-            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.` 
-
-            const conversation = await this.getOrCreateConversation(userId, agentConfig);
-
             // Gerar resposta da IA usando o provedor inicializado
-            const aiResponse = await this.provider.generateResponse(message, systemPrompt as string);
+            // const aiResponse = await this.provider.generateResponse(message, systemPrompt as string);
 
             if (aiResponse) {
                 const savedMessage = await this.saveAIResponse(aiResponse, userId, conversation.id, agentConfig);
