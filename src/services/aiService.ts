@@ -195,9 +195,7 @@ export class AIService {
                 });
 
             // Configuração do prompt do sistema
-            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.
-            
-            Se não tiver o nome do cliente, pergunte: "Qual o seu nome?" antes de prosseguir com qualquer outro diálogo.` 
+            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.` 
 
             console.log("PROMPT: ", systemPrompt)
             console.log("AGENT CONFIG: ", agentConfig)
