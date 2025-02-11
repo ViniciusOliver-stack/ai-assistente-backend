@@ -112,8 +112,9 @@ model Team {
   WhatsAppInstance WhatsAppInstance[]
 
   // Relacionar o time ao usuário dono
-  ownerId String?
-  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId   String?
+  owner     User?       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  Assistant Assistant[]
 }
 
 model TeamMember {
@@ -232,6 +233,7 @@ model Conversation {
   messages         Message[]
   metadata         Json?
   isAIEnabled      Boolean                   @default(true)
+  Thread           Thread?
 }
 
 enum ConversationStatus {
@@ -280,25 +282,33 @@ model Message {
   @@index([conversationId, timestamp])
 }
 
-model Memory {
+model Assistant {
   id           String   @id @default(cuid())
-  content      String
-  instanceName String
-  userId       String
+  assistantId  String   @unique // ID do assistant na OpenAI
+  name         String
+  instructions String
+  model        String   @default("gpt-4-turbo-preview")
   createdAt    DateTime @default(now())
-
-  @@index([instanceName, userId])
+  updatedAt    DateTime @updatedAt
+  teamId       String
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  threads      Thread[]
 }
 
-model UserMemory {
-  id         String   @id @default(cuid())
-  userId     String // Número de telefone
-  instanceId String // Identificador da instância
-  key        String // Chave da informação
-  value      String // Valor da informação
-  metadata   Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+model Thread {
+  id        String   @id @default(cuid())
+  threadId  String   @unique // ID da thread na OpenAI
+  userId    String // ID do usuário/cliente
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  status    String   @default("active")
 
-  @@unique([userId, instanceId, key])
+  assistant   Assistant @relation(fields: [assistantId], references: [id])
+  assistantId String
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String       @unique
+
+  @@index([userId])
+  @@index([threadId])
 }
