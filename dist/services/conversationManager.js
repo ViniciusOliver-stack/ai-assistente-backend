@@ -18,6 +18,22 @@ var TicketPriority;
 const database_1 = __importDefault(require("../config/database"));
 class ConversationManager {
     static async createOrReopenConversation(userId, recipientId, instanceWhatsApp) {
+        // First, get the team ID from the WhatsApp instance
+        const instance = await database_1.default.whatsAppInstance.findUnique({
+            where: { instanceName: instanceWhatsApp },
+            include: {
+                agent: {
+                    include: {
+                        team: true
+                    }
+                }
+            }
+        });
+        if (!instance) {
+            throw new Error(`WhatsApp instance ${instanceWhatsApp} not found`);
+        }
+        const teamId = instance.agent.team.id;
+        const agentTitle = instance.agent.title;
         // Procurar por conversa fechada recente
         const recentClosedConversation = await database_1.default.conversation.findFirst({
             where: {
@@ -51,7 +67,12 @@ class ConversationManager {
                     },
                     lastActivity: new Date(),
                     ticketNumber: recentClosedConversation.ticketNumber ||
-                        `TK-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`
+                        `TK-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
+                    metadata: {
+                        teamId: teamId,
+                        instanceName: instanceWhatsApp,
+                        agentTitle: agentTitle
+                    }
                 }
             });
         }
@@ -73,6 +94,11 @@ class ConversationManager {
                             role: 'ai',
                         }
                     ]
+                },
+                metadata: {
+                    teamId: teamId,
+                    instanceName: instanceWhatsApp,
+                    agentTitle: agentTitle
                 }
             }
         });

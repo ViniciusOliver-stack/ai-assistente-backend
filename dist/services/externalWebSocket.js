@@ -10,6 +10,7 @@ const database_1 = __importDefault(require("../config/database"));
 const conversationManager_1 = require("./conversationManager");
 const client_1 = require("@prisma/client");
 const factory_1 = require("./ai/factory");
+const messageBuffer_1 = require("./messageBuffer");
 class ExternalWebSocketService {
     constructor(internalIo, instanceUrl) {
         // private transcriptionService: AudioTranscriptionService;
@@ -19,6 +20,7 @@ class ExternalWebSocketService {
         const finalUrl = instanceUrl || defaultUrl;
         const instanceName = finalUrl.split('/').pop();
         this.aiService = new aiService_1.AIService(internalIo, instanceName);
+        this.messageBuffer = messageBuffer_1.MessageBufferService.getInstance();
         this.externalSocket = (0, socket_io_client_1.io)(instanceUrl, {
             transports: ['websocket']
         });
@@ -128,6 +130,20 @@ class ExternalWebSocketService {
     //Salva as informações no banco de dados
     async saveMessage(messageData, transcribedText) {
         try {
+            // Get instance information to retrieve teamId and agentTitle
+            const instance = await database_1.default.whatsAppInstance.findUnique({
+                where: { instanceName: messageData.instance },
+                include: {
+                    agent: {
+                        include: {
+                            team: true
+                        }
+                    }
+                }
+            });
+            if (!instance) {
+                throw new Error(`WhatsApp instance ${messageData.instance} not found`);
+            }
             // Procurar por conversa ativa
             const activeConversation = await database_1.default.conversation.findFirst({
                 where: {
@@ -166,7 +182,7 @@ class ExternalWebSocketService {
                     hasAudio: !!messageData.audioBase64,
                     isTranscribed: !!transcribedText,
                     messageType: messageData.audioBase64 ? 'audio' : 'text',
-                    metadata: Object.assign(Object.assign({}, messageData.audioBase64 ? { hasAudioAttachment: true } : {}), { ticketNumber: conversation.ticketNumber, instance: messageData.instance })
+                    metadata: Object.assign(Object.assign({}, messageData.audioBase64 ? { hasAudioAttachment: true } : {}), { ticketNumber: conversation.ticketNumber, instance: messageData.instance, teamId: instance.agent.team.id, agentTitle: instance.agent.title })
                 }
             });
         }
@@ -186,29 +202,78 @@ class ExternalWebSocketService {
                     console.error('Erro ao extrair dados da mensagem');
                     return;
                 }
+                let messageText = extractedData.text || '';
+                let finalMessageText = messageText;
+                // Processar áudio se disponível
                 let transcribedText;
                 if (extractedData.audioBase64 && !extractedData.text) {
                     try {
                         transcribedText = await this.processTranscriptionMessage(extractedData.audioBase64, extractedData.instance);
+                        console.log('Texto transcrita:', transcribedText);
+                        // Usar texto transcrito quando messageText estiver vazio
+                        if (!messageText && transcribedText) {
+                            finalMessageText = transcribedText;
+                        }
                     }
                     catch (error) {
                         console.error('Erro na transcrição:', error);
                     }
                 }
-                const savedMessage = await this.saveMessage(extractedData, transcribedText);
-                // Emitir mensagem para o frontend
-                this.internalIo.emit('new_message', {
-                    id: savedMessage.id,
-                    text: savedMessage.text,
-                    sender: savedMessage.sender,
-                    timestamp: savedMessage.timestamp,
-                    conversationId: savedMessage.conversationId,
-                    hasAudio: savedMessage.hasAudio,
-                    isTranscribed: savedMessage.isTranscribed,
-                    metadata: savedMessage.metadata,
-                });
-                // Processar e enviar resposta da IA
-                await this.aiService.processAIResponse(transcribedText || extractedData.text || '', extractedData.sender);
+                // Verificação explícita para garantir que não estamos enviando mensagem vazia
+                if (!finalMessageText) {
+                    console.warn('Ignorando mensagem vazia para o usuário:', extractedData.sender);
+                    return;
+                }
+                // Adicionar mensagem ao buffer e obter mensagem combinada se o buffer estiver pronto
+                const bufferedMessage = await this.messageBuffer.addMessage(extractedData.sender, finalMessageText);
+                if (bufferedMessage) {
+                    console.log('Processando mensagem combinada:', bufferedMessage);
+                    const savedMessage = await this.saveMessage(Object.assign(Object.assign({}, extractedData), { text: bufferedMessage }), transcribedText);
+                    // Emit message to frontend
+                    this.internalIo.emit('new_message', {
+                        id: savedMessage.id,
+                        text: savedMessage.text,
+                        sender: savedMessage.sender,
+                        timestamp: savedMessage.timestamp,
+                        conversationId: savedMessage.conversationId,
+                        hasAudio: savedMessage.hasAudio,
+                        isTranscribed: savedMessage.isTranscribed,
+                        metadata: savedMessage.metadata,
+                    });
+                    // Process with AI and handle the response
+                    try {
+                        const aiResponse = await this.aiService.processAIResponse(bufferedMessage, extractedData.sender);
+                        if (aiResponse) {
+                            console.log('Resposta da IA recebida:', aiResponse);
+                            // Additional logging for debugging
+                            console.log('Enviando resposta para:', extractedData.sender);
+                            console.log('Conteúdo da resposta:', aiResponse.text);
+                        }
+                        else {
+                            console.error('Resposta da IA está vazia');
+                        }
+                    }
+                    catch (error) {
+                        console.error('Erro ao processar resposta da IA:', error);
+                    }
+                }
+                // const savedMessage = await this.saveMessage(extractedData, transcribedText);
+                // // Emitir mensagem para o frontend
+                // this.internalIo.emit('new_message', {
+                //     id: savedMessage.id,
+                //     text: savedMessage.text,
+                //     sender: savedMessage.sender,
+                //     timestamp: savedMessage.timestamp,
+                //     conversationId: savedMessage.conversationId,
+                //     hasAudio: savedMessage.hasAudio,
+                //     isTranscribed: savedMessage.isTranscribed,
+                //     metadata: savedMessage.metadata,
+                // });
+                // // Processar e enviar resposta da IA
+                // await this.aiService.processAIResponse(
+                //     transcribedText || extractedData.text || '',
+                //     extractedData.sender
+                // );
             }
             catch (error) {
                 console.error('Erro ao processar mensagem:', error);

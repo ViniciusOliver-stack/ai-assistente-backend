@@ -7,9 +7,12 @@ exports.AIService = void 0;
 const database_1 = __importDefault(require("../config/database"));
 const client_1 = require("@prisma/client");
 const factory_1 = require("./ai/factory");
+const openai_assistant_provider_1 = require("./ai/providers/openai-assistant.provider");
+const messageBuffer_1 = require("./messageBuffer");
 class AIService {
     constructor(io, instanceName) {
         this.provider = null;
+        this.assistantProvider = null;
         this.io = io;
         this.instanceName = instanceName;
     }
@@ -40,6 +43,10 @@ class AIService {
             throw new Error(`Agent not properly associated with a team`);
         }
         this.provider = factory_1.AIProviderFactory.createProvider(instance.agent.provider, instance.agent.token.key, Object.assign(Object.assign({}, instance.agent), { teamId: instance.agent.team.id, temperature: instance.agent.temperature || 0.5, limitToken: instance.agent.limitToken || 1024, providerModel: instance.agent.providerModel, restrictionContent: instance.agent.restrictionContent, languageDetector: instance.agent.languageDetector }));
+        //Inicializar o assistantProvider
+        if (instance.agent.provider === 'OPENAI') {
+            this.assistantProvider = new openai_assistant_provider_1.OpenAIAssistantProvider(instance.agent.token.key, instance.agent);
+        }
         return instance.agent;
     }
     async saveAIResponse(text, userId, conversationId, agentConfig) {
@@ -56,6 +63,7 @@ class AIService {
                     model: agentConfig.providerModel,
                     instanceName: this.instanceName,
                     agentTitle: agentConfig.title,
+                    teamId: agentConfig.teamId
                 }
             }
         });
@@ -85,6 +93,15 @@ class AIService {
             },
         });
         if (activeConversation) {
+            // Update metadata if it doesn't have teamId
+            if (!activeConversation.metadata || !activeConversation.metadata.teamId) {
+                await database_1.default.conversation.update({
+                    where: { id: activeConversation.id },
+                    data: {
+                        metadata: Object.assign(Object.assign({}, (activeConversation.metadata || {})), { teamId: agentConfig.teamId, agentTitle: agentConfig.title, instanceName: this.instanceName })
+                    }
+                });
+            }
             return activeConversation;
         }
         // Se não houver conversa ativa, criar uma nova
@@ -115,7 +132,12 @@ class AIService {
             }
         });
     }
-    async processAIResponse(message, userId) {
+    async processAIResponse(message, userId, audioTranscription) {
+        const messageBuffer = messageBuffer_1.MessageBufferService.getInstance();
+        const bufferedMessage = await messageBuffer.addMessage(userId, message);
+        if (!bufferedMessage) {
+            return;
+        }
         try {
             const conversationStatusAI = await database_1.default.conversation.findFirst({
                 where: {
@@ -139,6 +161,42 @@ class AIService {
             }
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
+            const conversation = await this.getOrCreateConversation(userId, agentConfig);
+            let aiResponse;
+            if (this.assistantProvider) {
+                // Verificar ou criar assistant para o time
+                let assistant = await database_1.default.assistant.findFirst({
+                    where: { teamId: agentConfig.teamId }
+                });
+                // Configuração do prompt do sistema
+                const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.
+            
+            DIRETRIZES DE RESPOSTA:
+            1. Ao responder sobre horários:
+            - Use apenas a hora atual sem mencionar "contexto temporal"
+            - Formate como "São XXhXX" ou "XX:XX"
+            2. Para datas:
+            - Use formatos como "Hoje é segunda-feira, 15 de julho"
+            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
+            `;
+                console.log("PROMPT: ", systemPrompt);
+                console.log("AGENT CONFIG: ", agentConfig);
+                if (!assistant) {
+                    assistant = await this.assistantProvider.createAssistant(`${agentConfig.title} Assistant`, systemPrompt || "Você é um assistente prestativo.", agentConfig.teamId);
+                }
+                else if (assistant.instructions !== systemPrompt) {
+                    //Se o prompt foi alterado, atualizar o assistant
+                    assistant = await this.assistantProvider.updateAssistant(assistant.assistantId, systemPrompt);
+                }
+                // Obter ou criar thread
+                const thread = await this.assistantProvider.getOrCreateThread(userId, conversation.id, assistant.id);
+                // Gerar resposta usando o assistant
+                aiResponse = await this.assistantProvider.generateResponse(message, thread.threadId, assistant.assistantId, audioTranscription);
+            }
+            else {
+                // Fallback para o provider padrão
+                aiResponse = await this.provider.generateResponse(message, agentConfig.prompt);
+            }
             const teamWithOwner = await database_1.default.team.findUnique({
                 where: { id: agentConfig.teamId },
                 include: {
@@ -163,11 +221,8 @@ class AIService {
             if (!this.provider) {
                 throw new Error('Failed to initialize AI provider');
             }
-            // Configuração do prompt do sistema
-            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.`;
-            const conversation = await this.getOrCreateConversation(userId, agentConfig);
             // Gerar resposta da IA usando o provedor inicializado
-            const aiResponse = await this.provider.generateResponse(message, systemPrompt);
+            // const aiResponse = await this.provider.generateResponse(message, systemPrompt as string);
             if (aiResponse) {
                 const savedMessage = await this.saveAIResponse(aiResponse, userId, conversation.id, agentConfig);
                 const responseData = {

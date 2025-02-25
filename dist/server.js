@@ -19,7 +19,11 @@ const io = new socket_io_1.Server(httpServer, {
     cors: {
         origin: process.env.FRONTEND_URL || 'https://ai-assistente.vercel.app/',
         methods: ['GET', 'POST']
-    }
+    },
+    // Configurações para melhorar desempenho
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling'], // WebSocket como preferencial
 });
 // Middleware
 app.use((0, cors_1.default)());

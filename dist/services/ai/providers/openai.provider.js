@@ -50,6 +50,7 @@ class OpenAIProvider {
             });
             // Limpar o arquivo temporário
             await (0, promises_1.unlink)(audioFilePath).catch(console.error);
+            console.log(response.text);
             return response.text;
         }
         catch (error) {
