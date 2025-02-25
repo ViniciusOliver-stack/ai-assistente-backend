@@ -10,6 +10,23 @@ export class OpenAIAssistantProvider {
         this.data = data;
     }
 
+    private getBrasiliaTime(): string {
+        return new Date().toLocaleTimeString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+    
+    private getBrasiliaDate(): string {
+        return new Date().toLocaleDateString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long'
+        });
+    }
+
     async createAssistant(name: string, instructions: string, teamId: string) {
         try {
             //Cria um assistente na OpenAI
@@ -94,6 +111,14 @@ export class OpenAIAssistantProvider {
 
     async generateResponse(message: string, threadId: string, assistantId: string, audioTranscription?: string): Promise<string> {
         try {
+            // Adiciona contexto temporal primeiro
+            const timeNote = `[Nota interna: Data/Hora atual em Brasília: ${this.getBrasiliaDate()} - ${this.getBrasiliaTime()}]`;
+            
+            await this.client.beta.threads.messages.create(threadId, {
+                role: "user",
+                content: timeNote
+            });
+            
             // Se houver transcrição de áudio, adiciona primeiro
             if (audioTranscription) {
                 await this.addTranscriptionToThread(audioTranscription, threadId);
@@ -124,7 +149,12 @@ export class OpenAIAssistantProvider {
                 const lastMessage = messages.data[0];
                 
                 if (lastMessage.role === "assistant" && lastMessage.content[0].type === "text") {
-                    return lastMessage.content[0].text.value;
+                    const messages = await this.client.beta.threads.messages.list(threadId);
+                    const lastMessage = messages.data[0];
+                    
+                    if (lastMessage.role === "assistant" && lastMessage.content[0].type === "text") {
+                        return lastMessage.content[0].text.value;
+                    }
                 }
             }
 

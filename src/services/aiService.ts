@@ -88,6 +88,7 @@ export class AIService {
                     model: agentConfig.providerModel,
                     instanceName: this.instanceName,
                     agentTitle: agentConfig.title,
+                    teamId: agentConfig.teamId
                 }
             }
         });
@@ -119,6 +120,20 @@ export class AIService {
         });
     
         if (activeConversation) {
+            // Update metadata if it doesn't have teamId
+            if (!activeConversation.metadata || !(activeConversation.metadata as any).teamId) {
+                await prisma.conversation.update({
+                    where: { id: activeConversation.id },
+                    data: {
+                        metadata: {
+                            ...(activeConversation.metadata as any || {}),
+                            teamId: agentConfig.teamId,
+                            agentTitle: agentConfig.title,
+                            instanceName: this.instanceName
+                        }
+                    }
+                });
+            }
             return activeConversation;
         }
     
@@ -186,7 +201,7 @@ export class AIService {
             const agentConfig = await this.initializeAIProvider();
             const conversation = await this.getOrCreateConversation(userId, agentConfig);
 
-          let aiResponse: string;
+            let aiResponse: string;
 
             if (this.assistantProvider) {
                 // Verificar ou criar assistant para o time
@@ -195,7 +210,16 @@ export class AIService {
                 });
 
             // Configuração do prompt do sistema
-            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.` 
+            const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.
+            
+            DIRETRIZES DE RESPOSTA:
+            1. Ao responder sobre horários:
+            - Use apenas a hora atual sem mencionar "contexto temporal"
+            - Formate como "São XXhXX" ou "XX:XX"
+            2. Para datas:
+            - Use formatos como "Hoje é segunda-feira, 15 de julho"
+            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
+            ` 
 
             console.log("PROMPT: ", systemPrompt)
             console.log("AGENT CONFIG: ", agentConfig)

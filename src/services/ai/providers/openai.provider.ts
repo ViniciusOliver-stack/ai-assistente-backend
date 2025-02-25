@@ -62,6 +62,8 @@ export class OpenAIProvider implements AIProvider {
             // Limpar o arquivo temporário
             await unlink(audioFilePath).catch(console.error);
 
+            console.log(response.text)
+
             return response.text;
         } catch (error) {
             console.error('Error transcribing audio:', error);

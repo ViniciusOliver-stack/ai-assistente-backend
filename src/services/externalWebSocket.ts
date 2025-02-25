@@ -173,6 +173,23 @@ export class ExternalWebSocketService {
     //Salva as informações no banco de dados
     private async saveMessage(messageData: MessageData, transcribedText?: string) {
         try {
+
+            // Get instance information to retrieve teamId and agentTitle
+            const instance = await prisma.whatsAppInstance.findUnique({
+                where: { instanceName: messageData.instance! },
+                include: {
+                    agent: {
+                        include: {
+                            team: true
+                        }
+                    }
+                }
+            });
+
+            if (!instance) {
+                throw new Error(`WhatsApp instance ${messageData.instance} not found`);
+            }
+
             // Procurar por conversa ativa
             const activeConversation = await prisma.conversation.findFirst({
                 where: {
@@ -220,7 +237,9 @@ export class ExternalWebSocketService {
                     metadata: {
                         ...messageData.audioBase64 ? { hasAudioAttachment: true } : {},
                         ticketNumber: conversation.ticketNumber,
-                        instance: messageData.instance
+                        instance: messageData.instance,
+                        teamId: instance.agent.team.id,
+                        agentTitle: instance.agent.title,
                     }
                 }
             });
@@ -244,25 +263,33 @@ export class ExternalWebSocketService {
                 }
 
                 let messageText = extractedData.text || '';
+                let finalMessageText = messageText;
 
+                // Processar áudio se disponível
                 let transcribedText: string | undefined;
                 if (extractedData.audioBase64 && !extractedData.text) {
                     try {
                         transcribedText = await this.processTranscriptionMessage(extractedData.audioBase64, extractedData.instance!);
+                        console.log('Texto transcrita:', transcribedText);
+                        // Usar texto transcrito quando messageText estiver vazio
+                        if (!messageText && transcribedText) {
+                            finalMessageText = transcribedText;
+                        }
                     } catch (error) {
                         console.error('Erro na transcrição:', error);
                     }
                 }
 
-                if (!messageText) {
-                    console.log('Mensagem vazia, ignorando...');
+                // Verificação explícita para garantir que não estamos enviando mensagem vazia
+                if (!finalMessageText) {
+                    console.warn('Ignorando mensagem vazia para o usuário:', extractedData.sender);
                     return;
                 }
 
                 // Adicionar mensagem ao buffer e obter mensagem combinada se o buffer estiver pronto
                 const bufferedMessage = await this.messageBuffer.addMessage(
                     extractedData.sender,
-                    messageText
+                    finalMessageText
                 );
 
                 if (bufferedMessage) {
