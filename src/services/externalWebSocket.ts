@@ -255,6 +255,12 @@ export class ExternalWebSocketService {
         });
 
         this.externalSocket.on('messages.upsert', async (messageData) => {
+            let ephemeralMessage = ""
+
+            if(messageData.data.message.ephemeralMessage) {
+                ephemeralMessage = messageData.data.message.ephemeralMessage.message.extendedTextMessage.text
+            }
+
             try {
                 const extractedData = await this.extractMessageContent(messageData);
                 if(!extractedData) {
@@ -262,7 +268,7 @@ export class ExternalWebSocketService {
                     return;
                 }
 
-                let messageText = extractedData.text || '';
+                let messageText = extractedData.text || ephemeralMessage || '';
                 let finalMessageText = messageText;
 
                 // Processar áudio se disponível

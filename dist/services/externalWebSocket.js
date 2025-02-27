@@ -196,13 +196,17 @@ class ExternalWebSocketService {
             console.log('Conectado ao WebSocket externo');
         });
         this.externalSocket.on('messages.upsert', async (messageData) => {
+            let ephemeralMessage = "";
+            if (messageData.data.message.ephemeralMessage) {
+                ephemeralMessage = messageData.data.message.ephemeralMessage.message.extendedTextMessage.text;
+            }
             try {
                 const extractedData = await this.extractMessageContent(messageData);
                 if (!extractedData) {
                     console.error('Erro ao extrair dados da mensagem');
                     return;
                 }
-                let messageText = extractedData.text || '';
+                let messageText = extractedData.text || ephemeralMessage || '';
                 let finalMessageText = messageText;
                 // Processar áudio se disponível
                 let transcribedText;
