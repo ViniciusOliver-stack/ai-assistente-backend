@@ -4,6 +4,7 @@ import { readFile, unlink, writeFile } from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs'
 
 export class OpenAIProvider implements AIProvider {
     private client: OpenAI;
@@ -46,14 +47,14 @@ export class OpenAIProvider implements AIProvider {
         try {
             const audioFilePath = await this.base64ToTempFile(audioBase64);
 
-            const audioFile = new File(
-                [await readFile(audioFilePath)],
-                'audio.ogg',
-                { type: 'audio/ogg' }
-            )
+            // const audioFile = new File(
+            //     [await readFile(audioFilePath)],
+            //     'audio.ogg',
+            //     { type: 'audio/ogg' }
+            // )
 
             const response = await this.client.audio.transcriptions.create({
-                file: audioFile,
+                file: fs.createReadStream(audioFilePath),
                 model: "whisper-1",
                 language: language,
                 response_format: "json"
