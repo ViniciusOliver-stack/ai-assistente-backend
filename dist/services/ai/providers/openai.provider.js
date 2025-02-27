@@ -9,6 +9,7 @@ const promises_1 = require("fs/promises");
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const uuid_1 = require("uuid");
+const fs_1 = __importDefault(require("fs"));
 class OpenAIProvider {
     constructor(apiKey, data) {
         this.client = new openai_1.default({ apiKey });
@@ -41,9 +42,13 @@ class OpenAIProvider {
     async transcribeAudio(audioBase64, language) {
         try {
             const audioFilePath = await this.base64ToTempFile(audioBase64);
-            const audioFile = new File([await (0, promises_1.readFile)(audioFilePath)], 'audio.ogg', { type: 'audio/ogg' });
+            // const audioFile = new File(
+            //     [await readFile(audioFilePath)],
+            //     'audio.ogg',
+            //     { type: 'audio/ogg' }
+            // )
             const response = await this.client.audio.transcriptions.create({
-                file: audioFile,
+                file: fs_1.default.createReadStream(audioFilePath),
                 model: "whisper-1",
                 language: language,
                 response_format: "json"
