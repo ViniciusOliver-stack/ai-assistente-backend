@@ -166,9 +166,9 @@ export class AIService {
         });
     }
 
-    async processAIResponse(message: string, userId: string, audioTranscription?: string) {
+    async processAIResponse(message: string, userId: string, instanceName: string, audioTranscription?: string) {
         const messageBuffer = MessageBufferService.getInstance();
-        const bufferedMessage = await messageBuffer.addMessage(userId, message)
+        const bufferedMessage = await messageBuffer.addMessage(userId, message, instanceName)
 
         if(!bufferedMessage) {
             return
@@ -218,7 +218,7 @@ export class AIService {
             - Formate como "São XXhXX" ou "XX:XX"
             2. Para datas:
             - Use formatos como "Hoje é segunda-feira, 15 de julho"
-            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
+            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
             ` 
 
             console.log("PROMPT: ", systemPrompt)

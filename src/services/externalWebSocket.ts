@@ -268,6 +268,12 @@ export class ExternalWebSocketService {
                     return;
                 }
 
+                const instanceName = extractedData.instance || '';
+                if (!instanceName) {
+                    console.error('Missing instance name in message data');
+                    return;
+                }
+
                 let messageText = extractedData.text || ephemeralMessage || '';
                 let finalMessageText = messageText;
 
@@ -295,7 +301,8 @@ export class ExternalWebSocketService {
                 // Adicionar mensagem ao buffer e obter mensagem combinada se o buffer estiver pronto
                 const bufferedMessage = await this.messageBuffer.addMessage(
                     extractedData.sender,
-                    finalMessageText
+                    finalMessageText,
+                    instanceName
                 );
 
                 if (bufferedMessage) {
@@ -322,7 +329,8 @@ export class ExternalWebSocketService {
                     try {
                         const aiResponse = await this.aiService.processAIResponse(
                             bufferedMessage,
-                            extractedData.sender
+                            extractedData.sender,
+                            instanceName
                         );
                         
                         if (aiResponse) {

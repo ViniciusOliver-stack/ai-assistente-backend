@@ -12,7 +12,7 @@ interface BufferState {
 }
 
 interface MessageBuffer {
-    [userId: string]: BufferState;
+    [userInstanceKey: string]: BufferState;
 }
 
 export class MessageBufferService {
@@ -20,7 +20,6 @@ export class MessageBufferService {
     private messageBuffer: MessageBuffer = {}
     private readonly INITIAL_WAIT = 12000; 
     private readonly ADDITIONAL_WAIT = 5000;
-
 
     private constructor() { }
 
@@ -32,20 +31,26 @@ export class MessageBufferService {
         return MessageBufferService.instance;
     }
 
-    async addMessage(userId: string, text: string): Promise<string | null> {
+    // Create a key that combines userId and instanceName
+    private createBufferKey(userId: string, instanceName: string): string {
+        return `${userId}:${instanceName}`;
+    }
+
+    async addMessage(userId: string, text: string, instanceName: string): Promise<string | null> {
         const now = new Date();
+        const bufferKey = this.createBufferKey(userId, instanceName);
         
-        //Inicializar o buffer para esse usuário, caso ele não exista
-        if (!this.messageBuffer[userId]) {
-            this.messageBuffer[userId] = {
+        // Initialize buffer for this user and instance, if it doesn't exist
+        if (!this.messageBuffer[bufferKey]) {
+            this.messageBuffer[bufferKey] = {
                 messages: [],
                 lastMessageTime: now
             };
         }
 
-        const bufferState = this.messageBuffer[userId];
+        const bufferState = this.messageBuffer[bufferKey];
 
-        // Resetar o Buffer o tempo foi excedido
+        // Reset the buffer if time was exceeded
         if (bufferState.processingTimeout) {
             clearTimeout(bufferState.processingTimeout);
         }
@@ -54,11 +59,11 @@ export class MessageBufferService {
             clearTimeout(bufferState.checkTimeout);
         }
 
-        // Adicionar a mensagem ao buffer
+        // Add message to buffer
         bufferState.messages.push({ text, timestamp: now });
         bufferState.lastMessageTime = now;
 
-        console.log(`Mensagem adicionada ao buffer do usuário ${userId}. Total de mensagens: ${bufferState.messages.length}`);
+        console.log(`Message added to buffer for user ${userId} on instance ${instanceName}. Total messages: ${bufferState.messages.length}`);
 
         // Set new timeout for processing
         return new Promise((resolve) => {
@@ -70,20 +75,22 @@ export class MessageBufferService {
                 if (timeSinceLastMessage < this.INITIAL_WAIT) {
                     // If we received messages recently, wait additional time
                     bufferState.checkTimeout = setTimeout(() => {
-                        const combinedMessage = this.processAndClearBuffer(userId);
+                        const combinedMessage = this.processAndClearBuffer(userId, instanceName);
                         resolve(combinedMessage);
                     }, this.ADDITIONAL_WAIT);
                 } else {
                     // If no recent messages, process immediately
-                    const combinedMessage = this.processAndClearBuffer(userId);
+                    const combinedMessage = this.processAndClearBuffer(userId, instanceName);
                     resolve(combinedMessage);
                 }
             }, this.INITIAL_WAIT);
         });
     }
 
-    private processAndClearBuffer(userId: string): string {
-        const bufferState = this.messageBuffer[userId];
+    private processAndClearBuffer(userId: string, instanceName: string): string {
+        const bufferKey = this.createBufferKey(userId, instanceName);
+        const bufferState = this.messageBuffer[bufferKey];
+        
         if (!bufferState || bufferState.messages.length === 0) return '';
 
         // Sort messages by timestamp to ensure correct order
@@ -96,18 +103,20 @@ export class MessageBufferService {
             .map(msg => msg.text)
             .join('\n');
 
-        console.log(`[Buffer] Processando buffer para usuário ${userId}:`);
-        console.log(`Total mensagens: ${sortedMessages.length}`);
-        console.log(`Mensagem combinada: ${combinedMessage}`);
+        console.log(`[Buffer] Processing buffer for user ${userId} on instance ${instanceName}:`);
+        console.log(`Total messages: ${sortedMessages.length}`);
+        console.log(`Combined message: ${combinedMessage}`);
 
         // Clear the buffer
-        this.clearBuffer(userId);
+        this.clearBuffer(userId, instanceName);
 
         return combinedMessage;
     }
 
-    clearBuffer(userId: string) {
-        const bufferState = this.messageBuffer[userId];
+    clearBuffer(userId: string, instanceName: string) {
+        const bufferKey = this.createBufferKey(userId, instanceName);
+        const bufferState = this.messageBuffer[bufferKey];
+        
         if (bufferState) {
             if (bufferState.processingTimeout) {
                 clearTimeout(bufferState.processingTimeout);
@@ -116,28 +125,14 @@ export class MessageBufferService {
                 clearTimeout(bufferState.checkTimeout);
             }
         }
-        delete this.messageBuffer[userId];
-        console.log(`[Buffer] Buffer limpo para usuário ${userId}`);
+        
+        delete this.messageBuffer[bufferKey];
+        console.log(`[Buffer] Buffer cleared for user ${userId} on instance ${instanceName}`);
     }
 
-    // Método para debug/monitoramento
-    getBufferState(userId: string): BufferState | null {
-        return this.messageBuffer[userId] || null;
+    // Method for debugging/monitoring
+    getBufferState(userId: string, instanceName: string): BufferState | null {
+        const bufferKey = this.createBufferKey(userId, instanceName);
+        return this.messageBuffer[bufferKey] || null;
     }
-
-    // private processBuffer(userId: string): string {
-    //     const userBuffer = this.messageBuffer[userId];
-    //     if (!userBuffer || userBuffer.messages.length === 0) return '';
-
-    //     // Combina todas as mensagens no Buffer em uma única string
-    //     const combinedMessage = userBuffer.messages
-    //         .map(msg => msg.text)
-    //         .join('\n');
-
-    //     return combinedMessage;
-    // }
-
-    // clearBuffer(userId: string) {
-    //     delete this.messageBuffer[userId];
-    // }
 }
