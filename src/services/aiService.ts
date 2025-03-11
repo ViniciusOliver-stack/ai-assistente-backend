@@ -49,6 +49,9 @@ export class AIService {
             throw new Error(`Agent not properly associated with a team`);
         }
 
+        // Verificar se deve usar LangChain baseado nas configurações do agente
+        const useLangChain = instance.agent.useLangChain || false;
+
         this.provider = AIProviderFactory.createProvider(
             instance.agent.provider,
             instance.agent.token.key,
@@ -59,16 +62,18 @@ export class AIService {
                 limitToken: instance.agent.limitToken || 1024,
                 providerModel: instance.agent.providerModel,
                 restrictionContent: instance.agent.restrictionContent,
-                languageDetector: instance.agent.languageDetector
+                languageDetector: instance.agent.languageDetector,
+                useLangChain: useLangChain
             }
         );
 
-        //Inicializar o assistantProvider
-        if(instance.agent.provider === 'OPENAI') {
+        // Inicializar o assistantProvider apenas se não estiver usando LangChain
+        // e o provedor for OPENAI
+        if(instance.agent.provider === 'OPENAI' && !useLangChain) {
             this.assistantProvider = new OpenAIAssistantProvider(
                 instance.agent.token.key,
                 instance.agent
-            )
+            );
         }
 
         return instance.agent;
@@ -219,10 +224,7 @@ export class AIService {
             2. Para datas:
             - Use formatos como "Hoje é segunda-feira, 15 de julho"
             3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
-            ` 
-
-            console.log("PROMPT: ", systemPrompt)
-            console.log("AGENT CONFIG: ", agentConfig)
+            `
 
             if (!assistant) {
                 assistant = await this.assistantProvider.createAssistant(
