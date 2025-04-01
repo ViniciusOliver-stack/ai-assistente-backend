@@ -34,6 +34,7 @@ model User {
   Team                     Team[]
   TeamMembers              TeamMember[]
   plan                     Plan?           @relation(fields: [planId], references: [id])
+  Memory                   Memory[]
 }
 
 model Account {
@@ -89,7 +90,7 @@ model Authenticator {
 model Team {
   id               String             @id @default(cuid())
   name             String
-  description      String?
+  description      String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   ownerId          String?
@@ -99,6 +100,7 @@ model Team {
   owner            User?              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members          TeamMember[]
   WhatsAppInstance WhatsAppInstance[]
+  Memory           Memory[]
 }
 
 model TeamMember {
@@ -114,23 +116,28 @@ model TeamMember {
 }
 
 model Agent {
-  id                 String             @id @default(cuid())
-  title              String?
-  description        String?
-  enterprise         String?
-  providerModel      String?
-  temperature        Float?
-  limitToken         Float?
-  restrictionContent Boolean?
-  languageDetector   Boolean?
-  prompt             String?
-  teamId             String
-  tokenId            String?
-  provider           String             @default("OPENAI")
-  useLangChain       Boolean            @default(false)
-  team               Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  token              ApiKey?            @relation(fields: [tokenId], references: [id])
-  WhatsAppInstance   WhatsAppInstance[]
+  id                       String             @id @default(cuid())
+  title                    String?
+  description              String?
+  enterprise               String?
+  providerModel            String?
+  temperature              Float?
+  limitToken               Float?
+  restrictionContent       Boolean?
+  languageDetector         Boolean?
+  prompt                   String?
+  teamId                   String
+  tokenId                  String?
+  provider                 String             @default("OPENAI")
+  useLangChain             Boolean            @default(false)
+  audioTranscription       Boolean            @default(true) // Nova propriedade
+  audioMessageDisabled     String? // Mensagem quando a transcrição estiver desabilitada
+  groqAudioTranscription   Boolean            @default(false)
+  groqAudioApiKeyId        String?
+  groqAudioMessageDisabled String?
+  team                     Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  token                    ApiKey?            @relation(fields: [tokenId], references: [id])
+  WhatsAppInstance         WhatsAppInstance[]
 }
 
 model Plan {
@@ -146,14 +153,15 @@ model Plan {
 }
 
 model ApiKey {
-  id        String   @id @default(cuid())
-  key       String
-  provider  String
-  teamId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  agents    Agent[]
-  team      Team     @relation(fields: [teamId], references: [id])
+  id          String   @id @default(cuid())
+  key         String
+  provider    String
+  description String?
+  teamId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  agents      Agent[]
+  team        Team     @relation(fields: [teamId], references: [id])
 }
 
 model WhatsAppInstance {
@@ -263,6 +271,24 @@ model Thread {
 
   @@index([userId])
   @@index([threadId])
+}
+
+model Memory {
+  id         String   @id @default(cuid())
+  userId     String
+  teamId     String
+  metadata   Json?
+  embeddings Json?
+  buffer     Json?
+  summary    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
+
+  @@index([userId, teamId])
+  @@index([embeddings])
 }
 
 enum ConversationStatus {
