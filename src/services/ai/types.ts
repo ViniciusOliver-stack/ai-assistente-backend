@@ -1,5 +1,5 @@
 export interface AIProvider {
-    generateResponse(message: string, systemPrompt?: string): Promise<string>;
+    generateResponse(message: string, systemPrompt?: string, userId?: string): Promise<string>;
     transcribeAudio?(audioBase64: string, language?: string): Promise<string>;
 }
 
