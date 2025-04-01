@@ -63,7 +63,8 @@ export class AIService {
                 providerModel: instance.agent.providerModel,
                 restrictionContent: instance.agent.restrictionContent,
                 languageDetector: instance.agent.languageDetector,
-                useLangChain: useLangChain
+                useLangChain: useLangChain,
+                token: instance.agent.token 
             }
         );
 
@@ -256,7 +257,7 @@ export class AIService {
                 );
             } else {
                 // Fallback para o provider padrão
-                aiResponse = await this.provider!.generateResponse(message, agentConfig.prompt!);
+                aiResponse = await this.provider!.generateResponse(message, agentConfig.prompt!, userId);
             }
 
 
