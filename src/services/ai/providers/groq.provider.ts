@@ -14,6 +14,7 @@ export class GroqProvider implements AIProvider {
         this.data = data;
     }
 
+    //Não precisa fazer uso mais desse genertate
     async generateResponse(message: string, systemPrompt?: string): Promise<string> {
         const response = await this.client.chat.completions.create({
             messages: [

@@ -14,7 +14,8 @@ export class OpenAIProvider implements AIProvider {
         this.client = new OpenAI({ apiKey });
         this.data = data;
     }
-
+    
+    //Não precisa fazer uso mais desse genertate
     async generateResponse(message: string, systemPrompt?: string): Promise<string> {
         const systemPromptMessage = systemPrompt;
 
