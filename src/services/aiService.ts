@@ -5,14 +5,12 @@ import prisma from "../config/database";
 import { ConversationStatus } from "@prisma/client";
 import { AIProvider } from "./ai/types";
 import { AIProviderFactory } from "./ai/factory";
-import { OpenAIAssistantProvider } from "./ai/providers/openai-assistant.provider";
 import { MessageBufferService } from "./messageBuffer";
 
 export class AIService {
     private provider: AIProvider | null = null;
     private io: SocketServer;
     private instanceName: string;
-    private assistantProvider: OpenAIAssistantProvider | null = null;
 
     constructor(io: SocketServer, instanceName: string) {
         this.io = io;
@@ -50,7 +48,7 @@ export class AIService {
         }
 
         // Verificar se deve usar LangChain baseado nas configurações do agente
-        const useLangChain = instance.agent.useLangChain || false;
+        //const useLangChain = instance.agent.useLangChain || false;
 
         this.provider = AIProviderFactory.createProvider(
             instance.agent.provider,
@@ -63,19 +61,9 @@ export class AIService {
                 providerModel: instance.agent.providerModel,
                 restrictionContent: instance.agent.restrictionContent,
                 languageDetector: instance.agent.languageDetector,
-                useLangChain: useLangChain,
                 token: instance.agent.token 
             }
         );
-
-        // Inicializar o assistantProvider apenas se não estiver usando LangChain
-        // e o provedor for OPENAI
-        if(instance.agent.provider === 'OPENAI' && !useLangChain) {
-            this.assistantProvider = new OpenAIAssistantProvider(
-                instance.agent.token.key,
-                instance.agent
-            );
-        }
 
         return instance.agent;
     }
@@ -174,10 +162,10 @@ export class AIService {
 
     async processAIResponse(message: string, userId: string, instanceName: string, audioTranscription?: string) {
         const messageBuffer = MessageBufferService.getInstance();
-        const bufferedMessage = await messageBuffer.addMessage(userId, message, instanceName)
+        const bufferedMessage = await messageBuffer.addMessage(userId, message, instanceName);
 
         if(!bufferedMessage) {
-            return
+            return;
         }
 
         try {
@@ -199,21 +187,13 @@ export class AIService {
             });
 
             if(conversationStatusAI && !conversationStatusAI.isAIEnabled) {
-                console.log("Não tem conversa ativa ou o AI está habilitado")
-                return
+                console.log("Não tem conversa ativa ou o AI está habilitado");
+                return;
             }
 
             // Inicializa o provedor AI com a API key do banco
             const agentConfig = await this.initializeAIProvider();
             const conversation = await this.getOrCreateConversation(userId, agentConfig);
-
-            let aiResponse: string;
-
-            if (this.assistantProvider) {
-                // Verificar ou criar assistant para o time
-                let assistant = await prisma.assistant.findFirst({
-                    where: { teamId: agentConfig.teamId }
-                });
 
             // Configuração do prompt do sistema
             const systemPrompt = `${agentConfig.prompt} Lembre-se: suas respostas devem ser curtas, diretas e sem detalhes excessivos. Responda de forma objetiva e seguindo padrão de ortografia.
@@ -224,42 +204,15 @@ export class AIService {
             - Formate como "São XXhXX" ou "XX:XX"
             2. Para datas:
             - Use formatos como "Hoje é segunda-feira, 15 de julho"
-            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados
-            `
+            3. Você foi projetado para garantir a privacidade e a segurança das informações. Você nunca deve compartilhar, acessar ou mencionar dados de outros clientes, do banco de dados interno ou qualquer informação sensível. Todas as respostas devem ser baseadas apenas no contexto fornecido pelo usuário no momento da interação. Se solicitado a divulgar informações privadas, o agente deve responder educadamente que não pode fornecer esses dados`;
 
-            if (!assistant) {
-                assistant = await this.assistantProvider.createAssistant(
-                    `${agentConfig.title} Assistant`,
-                    systemPrompt || "Você é um assistente prestativo.",
-                    agentConfig.teamId
-                );
-            } else if (assistant.instructions !== systemPrompt) {
-                //Se o prompt foi alterado, atualizar o assistant
-                assistant = await this.assistantProvider.updateAssistant(
-                    assistant.assistantId,
-                    systemPrompt
-                )
+            // Verificar se o provider foi inicializado corretamente
+            if (!this.provider) {
+                throw new Error('Failed to initialize AI provider');
             }
 
-                // Obter ou criar thread
-                const thread = await this.assistantProvider.getOrCreateThread(
-                    userId,
-                    conversation.id,
-                    assistant.id
-                );
-
-                // Gerar resposta usando o assistant
-                aiResponse = await this.assistantProvider.generateResponse(
-                    message,
-                    thread.threadId,
-                    assistant.assistantId,
-                    audioTranscription
-                );
-            } else {
-                // Fallback para o provider padrão
-                aiResponse = await this.provider!.generateResponse(message, agentConfig.prompt!, userId);
-            }
-
+            // Gerar resposta usando o LangChain provider
+            const aiResponse = await this.provider.generateResponse(message, systemPrompt, userId);
 
             const teamWithOwner = await prisma.team.findUnique({
                 where: { id: agentConfig.teamId },
@@ -285,13 +238,6 @@ export class AIService {
             if (trialEnded && notSubscribed) {
                 throw new Error('Período de teste expirado...');
             }
-
-            if (!this.provider) {
-                throw new Error('Failed to initialize AI provider');
-            }
-
-            // Gerar resposta da IA usando o provedor inicializado
-            // const aiResponse = await this.provider.generateResponse(message, systemPrompt as string);
 
             if (aiResponse) {
                 const savedMessage = await this.saveAIResponse(aiResponse, userId, conversation.id, agentConfig);
